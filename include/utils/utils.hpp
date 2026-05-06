@@ -61,7 +61,7 @@ enum class DataType:uint8_t {
     GGML_TYPE_MXFP4   = 39,
     GGML_TYPE_COUNT   = 40
 };
-enum class GGUFType : uint8_t {
+enum class GGUFType : uint32_t {
     GGUF_TYPE_UINT8   = 0,
     GGUF_TYPE_INT8    = 1,
     GGUF_TYPE_UINT16  = 2,

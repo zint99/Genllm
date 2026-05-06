@@ -10,7 +10,7 @@ using Json = nlohmann::ordered_json;
 // 张量信息结构
 struct TensorInfo {
     bool transpose  = false;
-    DataType dtype  = DataType::GGML_TYPE_F32;
+    enum DataType dtype  = DataType::GGML_TYPE_F32;
     uint64_t offset = 0;                 // 绝对文件偏移量,gguf上的
     std::string name = "unknown";
     std::vector<int64_t> dimensions;     //transpose后维度，底层数据也要在加载时转置
@@ -40,8 +40,8 @@ struct GGUFInfo {
 // GGUF 解析器类
 class GGUFParser {
 private:
-    std::ifstream file_;
     GGUFInfo info_;
+    std::ifstream file_; 
     uint64_t data_offset_ = 0;
 public:
     explicit GGUFParser(const std::string& filename);

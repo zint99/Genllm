@@ -29,8 +29,8 @@ void GGUFInfo::print_info() const {
     std::println("{:<26} {:<8} {}", "名称", "数据类型", "维度");
     std::println("{:-<26} {:-<8} {:-<14}", "", "", "");
     for (const auto& info : tensors_info) {
-        std::println("(\"{}\",\"{}\",{}),", info.name, data_type_to_string(info.dtype), info.dimensions);
-        // std::println("{:<26} {:<8} {}", info.name, data_type_to_string(info.dtype), info.dimensions);
+        // std::println("(\"{}\",\"{}\",{}),", info.name, data_type_to_string(info.dtype), info.dimensions);
+        std::println("{:<26} {:<8} {}", info.name, data_type_to_string(info.dtype), info.dimensions);
     }
     std::println("{:-<26} {:-<8} {:-<14}", "", "", "");
 }
@@ -75,25 +75,21 @@ GGUFInfo GGUFParser::parse() {
     // 验证版本（当前支持 v3）
     if (info.version != 3) {
         throw std::runtime_error(
-            "Unsupported GGUF version: " + std::to_string(info.version) +
-            " (only version 3 is supported)"
+            "Unsupported GGUF version: " + std::to_string(info.version) + " (only version 3 is supported)"
         );
     }
-
     // 解析 metadata
     info.metadata = this->parse_metadata(info.metadata_kv_count);
     
-
     // 解析张量信息
     info.tensors_info = this->parse_tensors_info(info.tensor_count);
-
 
     uint32_t alignment = 32;
     uint64_t raw_offset = static_cast<uint64_t>(file_.tellg());
     if (info_.metadata.contains("general.alignment")) {
         alignment = info_.metadata["general.alignment"].get<uint32_t>();
     }
-    data_offset_ = raw_offset + (alignment - raw_offset % alignment) % alignment; // 5951936
+    data_offset_ = raw_offset + (alignment - raw_offset % alignment) % alignment; 
 
     info.offset = data_offset_;
     return info;
@@ -110,6 +106,7 @@ Json GGUFParser::parse_metadata(uint64_t kv_count) {
 std::vector<TensorInfo> GGUFParser::parse_tensors_info(uint64_t tensor_count) {
     std::vector<TensorInfo> tensors;
     tensors.reserve(tensor_count);
+    // [name][dims][x,y,z,w][dtype][offset]
     for (uint64_t i = 0; i < tensor_count; ++i) {
         TensorInfo info;
         info.name = read_string();

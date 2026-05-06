@@ -9,6 +9,10 @@
 
 class Executor {
 private:
+    struct InputBinding { 
+        void* data; 
+        size_t size; 
+    };
     struct LayerGroup {
         int32_t layer_id  = 0;
         int32_t device_id = 0;
@@ -23,9 +27,8 @@ private:
     MemoryManager& memory_;
     const ComputeGraph& graph_;
     std::map<Device, std::vector<int>> dev_id_map_;
-    struct InputBinding { void* data; size_t size; };
     std::map<std::string, InputBinding> inputs_;
-    std::unique_ptr<ThreadPool> pool_;  // 固定线程池，生命周期跟随 Executor
+    std::unique_ptr<ThreadPool> pool_;  // 固定线程池，生命周期跟随 Executor, 停用
     
     std::vector<Tensor*> apply_rope_tensors_;
     std::vector<LayerGroup> step_layers_;        // transformer 层，按 layer_id 升序

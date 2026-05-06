@@ -32,9 +32,9 @@ void GraphScheduler::schedule(const std::vector<BackendInfo>& devices) {
     this->print_summary(costs, devices);
 }
 // ========== 1. 估算每层内存开销 ==========
-std::vector<GraphScheduler::LayerCost> GraphScheduler::estimate_layer_costs(const ComputeGraph& graph) const {
-    const auto& all = graph.get_all_tensors();
-    const auto& groups = graph.get_layer_groups();
+std::vector<GraphScheduler::LayerCost> GraphScheduler::estimate_layer_costs(const std::unique_ptr<ComputeGraph>& graph) const {
+    const auto& all = graph->get_all_tensors();
+    const auto& groups = graph->get_layer_groups();
     std::vector<LayerCost> costs;
     for (const auto& [layer_id, tensors] : groups) {
         LayerCost lc;
@@ -160,7 +160,7 @@ std::vector<GraphScheduler::LayerAssignment> GraphScheduler::assign_layers(
 
 // ========== 3. 把分配结果写入 Tensor::device ==========
 void GraphScheduler::apply_assignment(
-    ComputeGraph& graph,
+    std::unique_ptr<ComputeGraph>& graph,
     const std::vector<LayerAssignment>& assignments) const
 {
     std::unordered_map<int, Device> layer_dev;
@@ -170,7 +170,7 @@ void GraphScheduler::apply_assignment(
         }
     }
 
-    for (auto* t : graph.get_all_tensors()) {
+    for (auto* t : graph->get_all_tensors()) {
         if (t->layer_id < 0) continue;
         auto it = layer_dev.find(t->layer_id);
         if (it != layer_dev.end()) {
@@ -180,8 +180,8 @@ void GraphScheduler::apply_assignment(
 }
 
 // ========== 4. 全局节点分配到 CPU ==========
-void GraphScheduler::assign_global_nodes(ComputeGraph& graph, Device cpu) const {
-    for (auto* t : graph.get_all_tensors()) {
+void GraphScheduler::assign_global_nodes(std::unique_ptr<ComputeGraph>& graph, Device cpu) const {
+    for (auto* t : graph->get_all_tensors()) {
         if (t->layer_id >= 0) 
             continue;
         t->device = cpu;
@@ -226,7 +226,7 @@ void GraphScheduler::print_summary(
 }
 
 // ========== 6. 插入跨设备拷贝边 ==========
-void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
+void GraphScheduler::insert_copy_edges(std::unique_ptr<ComputeGraph>& graph) const {
     struct Pair {
         Tensor* src;
         Device dst;
@@ -241,7 +241,7 @@ void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
     // 第一趟：只收集跨设备边，不改图（避免遍历时 push_back 导致迭代器失效）
     struct Edge { Tensor* src; Device dst_dev; int src_idx; Tensor* consumer; };
     std::vector<Edge> pending;
-    for (auto* t : graph.get_all_tensors()) {
+    for (auto* t : graph->get_all_tensors()) {
         for (int i = 0; i < TENSOR_MAX_SRC; ++i) {
             Tensor* src = t->src[i];
             if (!src || src->device == t->device) continue;
@@ -249,7 +249,7 @@ void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
         }
     }
     // 外部输出也需要可能的回拷
-    for (auto* t : graph.get_external_outputs()) {
+    for (auto* t : graph->get_external_outputs()) {
         if (t->device != Device::CPU) {
             pending.push_back({t, Device::CPU, -1, nullptr});
         }
@@ -265,16 +265,16 @@ void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
             if (e.consumer)
                 e.consumer->src[e.src_idx] = it->second;
             else
-                graph.replace_output(e.src, it->second);
+                graph->replace_output(e.src, it->second);
             ++deduped;
             continue;
         }
-        Tensor* proxy = graph.insert_memcpy(e.src, e.dst_dev);
+        Tensor* proxy = graph->insert_memcpy(e.src, e.dst_dev);
         cache[key] = proxy;
         if (e.consumer)
             e.consumer->src[e.src_idx] = proxy;
         else
-            graph.replace_output(e.src, proxy);
+            graph->replace_output(e.src, proxy);
         ++deduped;
         std::println("  [copy] {} ({}) -> {} ({})",
                      e.src->name, device_to_string(e.src->device),
@@ -282,7 +282,7 @@ void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
     }
 
     if (deduped > 0) {
-        graph.rebuild_order();
+        graph->rebuild_order();
         std::println("Inserted {} copy nodes ({} deduplicated refs)", cache.size(), deduped);
     }
 }
@@ -290,7 +290,7 @@ void GraphScheduler::insert_copy_edges(ComputeGraph& graph) const {
 // 这里会再次统计需要使用的权重池、激活池使用大小
 // 然后创建权重池、激活池
 // 激活池大小：取每层激活的最大值（层间复用内存，不累加）
-void GraphScheduler::create_memory_pools(const ComputeGraph& graph,const std::vector<BackendInfo>& devices) {
+void GraphScheduler::create_memory_pools(const std::unique_ptr<ComputeGraph>& graph,const std::vector<BackendInfo>& devices) {
     std::unordered_map<Device, size_t> dev_id_map;
     std::unordered_map<Device, size_t> dev_budget;
     for (const auto& d : devices) {
@@ -306,7 +306,7 @@ void GraphScheduler::create_memory_pools(const ComputeGraph& graph,const std::ve
     std::unordered_map<Device, DeviceMemUsage> usage;
 
     // 权重池：累加所有权重
-    for (auto* t : graph.get_all_tensors()) {
+    for (auto* t : graph->get_all_tensors()) {
         if (t->type == TensorType::TENSOR_TYPE_VIEW) continue;
         if (t->type == TensorType::TENSOR_TYPE_WEIGHT) {
             usage[t->device].weight_bytes += t->bytes();
@@ -316,7 +316,7 @@ void GraphScheduler::create_memory_pools(const ComputeGraph& graph,const std::ve
     // 激活池：按层统计，取最大单层激活量（层间复用，不累加）
     // 同时统计 copy 节点开销（insert_copy_edges 已执行完毕，图中已有 memcpy 节点）
     std::unordered_map<int, size_t> layer_act;
-    for (auto* t : graph.get_all_tensors()) {
+    for (auto* t : graph->get_all_tensors()) {
         if (t->type == TensorType::TENSOR_TYPE_VIEW) continue;
         if (t->type == TensorType::TENSOR_TYPE_WEIGHT) continue;
         if (t->op_type == OperationType::OP_TYPE_MEMCPY) {
@@ -327,7 +327,7 @@ void GraphScheduler::create_memory_pools(const ComputeGraph& graph,const std::ve
     }
     for (auto& [dev, u] : usage) {
         size_t max_act = 0;
-        for (auto* t : graph.get_all_tensors()) {
+        for (auto* t : graph->get_all_tensors()) {
             if (t->type == TensorType::TENSOR_TYPE_VIEW || t->type == TensorType::TENSOR_TYPE_WEIGHT) continue;
             if (t->op_type == OperationType::OP_TYPE_MEMCPY) continue;
             if (t->device != dev) continue;
@@ -340,7 +340,7 @@ void GraphScheduler::create_memory_pools(const ComputeGraph& graph,const std::ve
 
         // KV cache 池：累加该设备上所有层的 paged cache
         int32_t max_blocks = static_cast<int32_t>((config_.max_seq_len + PAGE_BLOCK_SIZE - 1) / PAGE_BLOCK_SIZE);
-        for (auto* t : graph.get_all_tensors()) {
+        for (auto* t : graph->get_all_tensors()) {
             if (t->op_type != OperationType::OP_TYPE_SDPA || !t->src[1]) continue;
             if (t->device != dev) continue;
             int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]);
@@ -391,7 +391,7 @@ void GraphScheduler::initialize_kv_cache() {
         PagedAttentionManager& pam = mmanager_->create_attention_manager(assign.device, assign.dev_id);
         
         for (int l = assign.start_layer; l <= assign.end_layer; ++l) {
-            for (auto* t : graph_.get_all_tensors()) {
+            for (auto* t : this->graph().get_all_tensors()) {
                 if (t->op_type != OperationType::OP_TYPE_SDPA || !t->src[1]) continue;
                 if (t->layer_id != l) continue;
 

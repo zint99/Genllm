@@ -44,15 +44,15 @@ constexpr const char* COLOR_CYAN   = "\033[36m";
         auto end = std::chrono::steady_clock::now();                                \
         std::chrono::duration<double, std::milli> duration_ms = end - start;        \
         double ms = duration_ms.count();                                            \
-        std::cout << std::fixed << std::setprecision(3);                            \
+        std::cout << COLOR_RED << std::fixed << std::setprecision(3);               \
         if (ms < 1000.0) {                                                          \
-            std::cout << "Execution time: " << ms << " ms" << std::endl;             \
+            std::cout << "\nExecution time: " << ms << "ms" << COLOR_RESET << std::endl; \
         } else if (ms < 60.0 * 1000.0) {                                            \
-            std::cout << "Execution time: " << ms / 1000.0 << " s" << std::endl;     \
+            std::cout << "\nExecution time: " << ms / 1000.0 << "s" << COLOR_RESET << std::endl; \
         } else if (ms < 60.0 * 60.0 * 1000.0) {                                     \
-            std::cout << "Execution time: " << ms / (60.0 * 1000.0) << " min" << std::endl; \
+            std::cout << "\nExecution time: " << ms / (60.0 * 1000.0) << "min" << COLOR_RESET << std::endl; \
         } else {                                                                    \
-            std::cout << "Execution time: " << ms / (60.0 * 60.0 * 1000.0) << " h" << std::endl; \
+            std::cout << "\nExecution time: " << ms / (60.0 * 60.0 * 1000.0) << "h" << COLOR_RESET << std::endl; \
         }                                                                           \
     } while (0)
 

@@ -11,8 +11,7 @@
 // OpFactory: 通用算子节点创建 (只建图，不分配内存)
 // 所有函数返回新 Tensor*，用户负责生命周期管理
 // ============================================================================
-class OpFactory {
-public:
+struct OpFactory {
     // 分配到权重区，但不是权重
     static Tensor* placeholder(
         DataType dtype,

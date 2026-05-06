@@ -8,7 +8,6 @@
 #include <algorithm>
 #include "graph.h"
 #include "gguf_parser.h"
-// #include "core/mmanger.h"
 #include "utils/utils.hpp"
 
 
@@ -19,12 +18,11 @@ protected:
     enum ModelArch arch;
 public:
     std::string name = "unknow";
-    ComputeGraph graph_;
     virtual ~ModelBase(){};
     virtual void print_info() = 0;
     [[nodiscard]] virtual size_t vocab_size() const = 0;
     [[nodiscard]] virtual int64_t max_seq_len() const = 0;
-    [[nodiscard]] virtual ComputeGraph& build_graph(const GGUFInfo&) = 0;
+    [[nodiscard]] virtual std::unique_ptr<ComputeGraph> build_graph(const GGUFInfo&) = 0;
 };
 
 
@@ -33,7 +31,7 @@ class ModelFactory {
 private:
     // 注册的模型创建函数
     using ModelCreator = std::unique_ptr<ModelBase> (*)();
-    static inline std::unordered_map<std::string, ModelCreator> s_registry;
+    static inline std::unordered_map<std::string, ModelCreator> s_registry; // [qwen3] -->[Qwen3Model]
 
     // 注册模型的辅助函数
     template<typename T>
@@ -45,7 +43,7 @@ public:
     // 注册模型类型
     template<typename T>
     static void RegisterModel(const std::string& arch_name) {
-        s_registry[arch_name] = &create_model<T>;
+        s_registry[arch_name] = &create_model<T>; // s_registry[qwen3] = std::make_unique<Qwen3Model>()
     }
 
     // 根据架构名称创建模型
@@ -59,10 +57,10 @@ public:
 
     // 从GGUFInfo创建模型
     [[nodiscard]] static std::unique_ptr<ModelBase> CreateFromGGUF(GGUFInfo& info) {
-        std::string arch = info.get_model_architecture();
+        std::string arch = info.get_model_architecture(); // qwen3
         // 转换为小写以匹配
         std::transform(arch.begin(), arch.end(), arch.begin(),[](unsigned char c){ return std::tolower(c); });
-        return CreateFromArch(arch);
+        return ModelFactory::CreateFromArch(arch);
     }
 
     // 获取已注册的模型列表
@@ -77,15 +75,3 @@ public:
     // 初始化默认模型注册
     static void init();
 };
-
-// 全局模型注册宏
-#define REGISTER_MODEL(ARCH_NAME, MODEL_CLASS) \
-    namespace { \
-        struct MODEL_CLASS##Registrar { \
-            MODEL_CLASS##Registrar() { \
-                ModelFactory::register_model<MODEL_CLASS>(ARCH_NAME); \
-            } \
-        }; \
-        static MODEL_CLASS##Registrar g_##MODEL_CLASS##_registrar; \
-    }
-

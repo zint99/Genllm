@@ -39,8 +39,9 @@ public:
             : start_layer(s), end_layer(e), device(d), dev_id(id),
               kv_cache_bytes(b), weight_bytes(w), activation_bytes(a) {}
     };
-    explicit GraphScheduler(ComputeGraph cg, Config cfg)
+    explicit GraphScheduler(std::unique_ptr<ComputeGraph> cg, Config cfg)
         : graph_(std::move(cg)), config_(cfg) {
+            
         mmanager_ = std::make_unique<MemoryManager>();
     }
 
@@ -49,13 +50,13 @@ public:
     [[nodiscard]] float top_p() const { return config_.top_p; }
 
     [[nodiscard]] const Config& config() const { return config_; }
-    [[nodiscard]] const ComputeGraph& graph() const { return graph_; }
+    [[nodiscard]] const ComputeGraph& graph() const { return *graph_; }
     [[nodiscard]] float temperature() const { return config_.temperature; }
 
     [[nodiscard]] size_t vocab_size() const { return config_.vocab_size; }
 
     [[nodiscard]] int64_t max_seq_len() const { return config_.max_seq_len; }
-    void export_dot(const std::string& path) const { graph_.export_dot(path); }
+    void export_dot(const std::string& path) const { graph_->export_dot(path); }
     [[nodiscard]] std::unique_ptr<MemoryManager>& mmanager() { return mmanager_; }
     [[nodiscard]] const std::unique_ptr<MemoryManager>& mmanager() const { return mmanager_; }
     [[nodiscard]] const std::vector<LayerAssignment>& get_assignments() const { return assignments_; }
@@ -70,19 +71,19 @@ public:
     
 private:
     Config config_;
-    ComputeGraph graph_;
+    std::unique_ptr<ComputeGraph> graph_;
     std::unique_ptr<MemoryManager> mmanager_;
     std::vector<LayerAssignment> assignments_;
 
-    void assign_global_nodes(ComputeGraph& graph, Device cpu) const;
-    void unify_weight_devices(ComputeGraph& graph) const;
-    std::vector<LayerCost> estimate_layer_costs(const ComputeGraph& graph) const;
-    void apply_assignment(ComputeGraph& graph, const std::vector<LayerAssignment>& assignments) const;
+    void assign_global_nodes(std::unique_ptr<ComputeGraph>& graph, Device cpu) const;
+    void unify_weight_devices(std::unique_ptr<ComputeGraph>& graph) const;
+    std::vector<LayerCost> estimate_layer_costs(const std::unique_ptr<ComputeGraph>& graph) const;
+    void apply_assignment(std::unique_ptr<ComputeGraph>& graph, const std::vector<LayerAssignment>& assignments) const;
     std::vector<LayerAssignment> assign_layers(const std::vector<LayerCost>& costs,const std::vector<BackendInfo>& devices) const;
 
 
-    void insert_copy_edges(ComputeGraph& graph) const;
-    void create_memory_pools(const ComputeGraph& graph, const std::vector<BackendInfo>& devices);
+    void insert_copy_edges(std::unique_ptr<ComputeGraph>& graph) const;
+    void create_memory_pools(const std::unique_ptr<ComputeGraph>& graph, const std::vector<BackendInfo>& devices);
     void initialize_kv_cache();
     void print_summary(const std::vector<LayerCost>& costs, const std::vector<BackendInfo>& devices) const;
 

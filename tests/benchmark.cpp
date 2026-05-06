@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<ModelBase> model = ModelFactory::CreateFromGGUF(parser.info());
 
-    ComputeGraph& graph = model->build_graph(parser.info());
+    auto graph = model->build_graph(parser.info());
 
     GraphScheduler::Config sched_cfg{
         .vocab_size = model->vocab_size(),
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
         .activation_pool_factor = 1.05f
     };
 
-    GraphScheduler scheduler(graph, sched_cfg);
+    GraphScheduler scheduler(std::move(graph), sched_cfg);
     scheduler.schedule(DeviceManager::instance().get_devices());
 
     std::unique_ptr<MemoryManager>& manager = scheduler.mmanager();

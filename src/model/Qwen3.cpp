@@ -1,6 +1,7 @@
+#include <memory>
+#include <print>
 #include "model/Qwen3.hpp"
 #include "model/op_factory.hpp"
-#include "utils/tools.hpp"
 
 
 void Qwen3Model::print_info(){
@@ -49,11 +50,11 @@ void Qwen3Model::parse_config(const GGUFInfo& info) {
         config_.head_dim, config_.vocab_size, config_.num_layers);
 }
 
-ComputeGraph& Qwen3Model::build_graph(const GGUFInfo& info){
+std::unique_ptr<ComputeGraph> Qwen3Model::build_graph(const GGUFInfo& info){
     std::println("Building Qwen3 computation graph...");
     // ========== Step 1: 解析配置参数 ==========
     this->parse_config(info);
-    // this->config_.num_layers = 1; // 临时 hardcode 层数，方便测试。实际实现时应该使用 config_.num_layers
+    // this->config_.num_layers = 1; // 临时 hardcode 层数，方便测试。
     //=====================================================================================
     Tensor* input_ids = OpFactory::placeholder(DataType::GGML_TYPE_I32,TensorType::TENSOR_TYPE_INPUT, {1, -1},"input_ids"); //[B, seq_len]
 
@@ -95,9 +96,12 @@ ComputeGraph& Qwen3Model::build_graph(const GGUFInfo& info){
     logits->type = TensorType::TENSOR_TYPE_OUTPUT; // 标记为输出张量
     
     // ========== Step 3: 从 logits 反向收集，构建 ComputeGraph ==========
-    this->graph_.build_from_outputs({logits});
 
-    return this->graph_;
+    auto graph = std::make_unique<ComputeGraph>();
+
+    graph->build_from_outputs({logits});
+
+    return graph;
 }
 
 Tensor* Qwen3Model::build_qwen3_layer(

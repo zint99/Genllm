@@ -5,23 +5,26 @@
 
 class ComputeGraph {
 private:
-    std::vector<Tensor*> all_tensors_;
-    std::vector<Tensor*> execution_order_;
-    std::vector<std::vector<Tensor*>> execution_levels_; // 按依赖层级分组，同层内节点可并行
-    std::vector<Tensor*> external_outputs_;
-    std::map<int, std::vector<Tensor*>> layer_groups_;
     int max_layer_ = -1;
 
-    void reverse_bfs_collect(const std::vector<Tensor*>& seeds);
+    std::vector<Tensor*> all_tensors_;
+    std::vector<Tensor*> execution_order_;
+    std::vector<Tensor*> external_outputs_;
+    std::map<int, std::vector<Tensor*>> layer_groups_;
+    std::vector<std::vector<Tensor*>> execution_levels_; // 按依赖层级分组，同层内节点可并行
+
     void topological_sort();
     static std::string dot_id(const Tensor* t);
-
+    void reverse_bfs_collect(const std::vector<Tensor*>& seeds);
 public:
     ComputeGraph() = default;
-    ~ComputeGraph() = default;
+    ~ComputeGraph() {
+        for (auto* t : all_tensors_) 
+            delete t; // 只回收元数据，实际data由IMemoryResource管理
+    }
 
-    ComputeGraph(const ComputeGraph& other) = default;
-    ComputeGraph& operator=(const ComputeGraph& other) = default;
+    ComputeGraph(const ComputeGraph&) = delete;
+    ComputeGraph& operator=(const ComputeGraph&) = delete;
 
     ComputeGraph(ComputeGraph&& other) noexcept;
     ComputeGraph& operator=(ComputeGraph&& other) noexcept;

@@ -22,14 +22,16 @@ public:
     int32_t num_blocks() const { return num_blocks_; }
     int32_t num_free() const { return static_cast<int32_t>(free_list_.size()); }
 private:
-    int32_t block_capacity_ = 0;
-    int32_t n_kv_heads_ = 0;
     int32_t head_dim_ = 0;
+    int32_t n_kv_heads_ = 0;
+    int32_t num_blocks_ = 0;
+    int32_t block_capacity_ = 0;
+
     size_t elem_size_ = 0;
     size_t block_bytes_ = 0;
-    std::byte* buffer_ = nullptr;
     size_t buffer_bytes_ = 0;
-    int32_t num_blocks_ = 0;
+
+    std::byte* buffer_ = nullptr;
     std::vector<int32_t> free_list_;
     friend class PagedAttentionManager;
 };

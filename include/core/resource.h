@@ -1,5 +1,6 @@
 #pragma once
 #include "utils/utils.hpp"
+#include <driver_types.h>
 
 struct MemoryBlock {
     void* ptr = nullptr;
@@ -33,11 +34,14 @@ public:
 #ifdef BACKEND_CUDA
 class CudaMemoryResource : public IMemoryResource {
     int device_id_;
+    bool lock_memory_ = false;
+    cudaStream_t stream_;
 public:
     explicit CudaMemoryResource(int device_id) : device_id_(device_id) {}
-    void* allocate(size_t size, size_t alignment) override;
     void deallocate(void* ptr, size_t size) override;
-    Device device() const override { return Device::CUDA; }
-    size_t id() const override { return static_cast<size_t>(device_id_); }
+    void* allocate(size_t size, size_t alignment) override;
+    [[nodiscard]] bool lock_memory() const { return lock_memory_; }
+    [[nodiscard]] Device device() const override { return Device::CUDA; }
+    [[nodiscard]] size_t id() const override { return static_cast<size_t>(device_id_); }
 };
 #endif

@@ -53,7 +53,7 @@ public:
     Qwen3Model& operator=(Qwen3Model&&) noexcept = default;
 
     void print_info() override;
-    ComputeGraph& build_graph(const GGUFInfo& info) override;
+    std::unique_ptr<ComputeGraph> build_graph(const GGUFInfo& info) override;
     [[nodiscard]] const Qwen3Config& config() const { return config_; }
     [[nodiscard]]size_t vocab_size() const override{ return config_.vocab_size; }
 

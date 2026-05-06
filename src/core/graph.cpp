@@ -1,11 +1,12 @@
+#include <cstdint>
 #include <format>
 #include <fstream>
 #include <queue>
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
+#include <vector>
 #include "core/graph.h"
-#include "utils/tools.hpp"
 // ========== private ==========
 
 void ComputeGraph::reverse_bfs_collect(const std::vector<Tensor*>& seeds) {
@@ -104,6 +105,7 @@ ComputeGraph::ComputeGraph(ComputeGraph&& other) noexcept
 
 ComputeGraph& ComputeGraph::operator=(ComputeGraph&& other) noexcept {
     if (this != &other) {
+        for (auto* t : all_tensors_) delete t;
         all_tensors_ = std::move(other.all_tensors_);
         execution_order_ = std::move(other.execution_order_);
         execution_levels_ = std::move(other.execution_levels_);
@@ -123,6 +125,7 @@ void ComputeGraph::build_from_outputs(std::initializer_list<Tensor*> outputs) {
 }
 
 void ComputeGraph::clear() {
+    for (auto* t : all_tensors_) delete t;
     all_tensors_.clear();
     execution_order_.clear();
     execution_levels_.clear();
@@ -182,7 +185,11 @@ void ComputeGraph::export_dot(const std::string& path) const {
 
         std::string layer_prefix = (t->layer_id >= 0) ? std::format("[L{},{}] ", t->layer_id,data_type_to_string(t->dtype)) :  std::format("[Global,{}] ",data_type_to_string(t->dtype));
         std::string label = layer_prefix + t->name;
-        label += std::format("\\n{}{}",device_to_string(t->device),t->dims);
+        std::vector<int64_t> real_dims;
+        for(int i = 0; i < t->dims.size(); ++i){
+            if(t->dims[i] != 0) real_dims.push_back(t->dims[i]);
+        }
+        label += std::format("\\n{}{}",device_to_string(t->device),real_dims);
         if (t->op_type != OperationType::OP_TYPE_NONE)
             label += "\\n" + operation_type_to_string(t->op_type);
         os << std::format("  \"{}\" [fillcolor=\"{}\", label=\"{}\"];\n",dot_id(t), color, label);

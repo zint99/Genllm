@@ -85,7 +85,7 @@ void Qwen35Model::parse_config(const GGUFInfo& info) {
         config_.ssm_inner_size, config_.ssm_state_size, config_.full_attention_interval, config_.rope_theta);
 }
 
-ComputeGraph& Qwen35Model::build_graph(const GGUFInfo& info){
+std::unique_ptr<ComputeGraph> Qwen35Model::build_graph(const GGUFInfo& info){
     std::println("Building Qwen3.5 Hybrid (Mamba2+Attn) computation graph...");
     this->parse_config(info);
 
@@ -121,8 +121,11 @@ ComputeGraph& Qwen35Model::build_graph(const GGUFInfo& info){
     Tensor* logits = OpFactory::linear(final_norm, embd_weight_info, "logits", config_.block_count, true);
     logits->type = TensorType::TENSOR_TYPE_OUTPUT;
     
-    this->graph_.build_from_outputs({logits});
-    return this->graph_;
+    auto graph = std::make_unique<ComputeGraph>();
+
+    graph->build_from_outputs({logits});
+
+    return graph;
 }
 
 Tensor* Qwen35Model::build_ssm_layer(Tensor* input, const GGUFInfo& info, int layer_idx) {
