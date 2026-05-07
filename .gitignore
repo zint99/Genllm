@@ -5,6 +5,8 @@ dist/
 models/
 shell/__pycache__/
 tutorial/
+temp/
+
 
 *.dot
 *.o

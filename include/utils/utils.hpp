@@ -113,7 +113,9 @@ enum class OperationType:uint8_t {
     OP_TYPE_CONV2D       ,
     OP_TYPE_FLASH_ATTN   ,
     OP_TYPE_CAUSAL_CONV1D,
-    OP_TYPE_SSM_SCAN
+    OP_TYPE_SSM_SCAN    ,
+    OP_TYPE_NARROW      ,
+    OP_TYPE_SIGMOID
 };
 // 模型类型
 enum class ModelType:uint8_t {
@@ -229,6 +231,10 @@ inline std::string operation_type_to_string(OperationType op) {
         case OperationType::OP_TYPE_ROPE_CACHE:    return "RopeCache";
         case OperationType::OP_TYPE_CONV2D:        return "Conv2D";
         case OperationType::OP_TYPE_FLASH_ATTN:    return "FlashAttn";
+        case OperationType::OP_TYPE_CAUSAL_CONV1D: return "CausalConv1D";
+        case OperationType::OP_TYPE_SSM_SCAN:      return "SSMScan";
+        case OperationType::OP_TYPE_NARROW:        return "Narrow";
+        case OperationType::OP_TYPE_SIGMOID:       return "Sigmoid";
         default:                                   return "Unknown";
     }
 }

@@ -6,11 +6,13 @@
 #include "tokenizer.h"
 #include "core/executor.h"
 #include "utils/tools.hpp"
+
 int main() {
+
 
     DeviceManager::instance().print_devices();
 
-    GGUFParser parser("models/Qwen3-0.6B-BF16.gguf");
+    GGUFParser parser("models/Qwen3.5-0.8B-BF16.gguf");
 
     parser.info().print_info();
 
@@ -18,7 +20,8 @@ int main() {
 
     auto graph = model->build_graph(parser.info()); // 目前是batch固定1，seq_len动态的。
 
-    graph->export_dot("qwen3-graph.dot");
+    graph->export_dot("qwen35-graph.dot");
+
 
     GraphScheduler::Config sched_cfg{
         .vocab_size = model->vocab_size(),

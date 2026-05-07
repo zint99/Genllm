@@ -52,7 +52,7 @@ public:
         if (it == s_registry.end()) {
             throw std::runtime_error(std::format("Unsupported model architecture: {}", arch_name));
         }
-        return it->second();
+        return it->second(); 
     }
 
     // 从GGUFInfo创建模型

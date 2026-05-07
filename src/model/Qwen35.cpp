@@ -88,6 +88,8 @@ void Qwen35Model::parse_config(const GGUFInfo& info) {
 std::unique_ptr<ComputeGraph> Qwen35Model::build_graph(const GGUFInfo& info){
     std::println("Building Qwen3.5 Hybrid (Mamba2+Attn) computation graph...");
     this->parse_config(info);
+    this->config_.block_count = 4; // 临时 hardcode 层数，方便测试。
+
 
     Tensor* input_ids = OpFactory::placeholder(DataType::GGML_TYPE_I32, TensorType::TENSOR_TYPE_INPUT, {1, -1}, "input_ids");
     
@@ -107,10 +109,11 @@ std::unique_ptr<ComputeGraph> Qwen35Model::build_graph(const GGUFInfo& info){
     for (int i = 0; i < config_.block_count; ++i) {
         // 动态路由：每 full_attention_interval 层插入 1 个 Attention
         bool is_attn_layer = ((i + 1) % config_.full_attention_interval == 0);
+
         if(is_attn_layer){
-            prev_output = this->build_attn_layer(prev_output, info, i, rope_cos, rope_sin);
+            prev_output = this->build_linear_attn_layer(prev_output, info, i, rope_cos, rope_sin); // 3x
         } else {
-            prev_output = this->build_ssm_layer(prev_output, info, i);
+            prev_output = this->build_full_attn_layer(prev_output, info, i); // 1x
         }
     }
 
@@ -128,7 +131,7 @@ std::unique_ptr<ComputeGraph> Qwen35Model::build_graph(const GGUFInfo& info){
     return graph;
 }
 
-Tensor* Qwen35Model::build_ssm_layer(Tensor* input, const GGUFInfo& info, int layer_idx) {
+Tensor* Qwen35Model::build_full_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx) {
     std::string p = std::format("blk.{}", layer_idx);
     
     auto* norm_w = OpFactory::find_tensor(info, p + ".attn_norm.weight");
@@ -142,17 +145,18 @@ Tensor* Qwen35Model::build_ssm_layer(Tensor* input, const GGUFInfo& info, int la
     auto* conv_w = OpFactory::find_tensor(info, p + ".ssm_conv1d.weight");
     auto* conv_out = OpFactory::causal_conv1d(qkv_proj, conv_w, config_.ssm_conv_kernel, "conv_out", layer_idx);
 
-    auto* ssm_norm_w = OpFactory::find_tensor(info, p + ".ssm_norm.weight");
-    auto* ssm_normed = OpFactory::rms_norm(conv_out, ssm_norm_w, config_.rms_norm_eps, "ssm_normed", layer_idx);
-
     auto* ssm_a     = OpFactory::find_tensor(info, p + ".ssm_a");
     auto* ssm_alpha = OpFactory::find_tensor(info, p + ".ssm_alpha.weight");
     auto* ssm_beta  = OpFactory::find_tensor(info, p + ".ssm_beta.weight");
     auto* ssm_dt    = OpFactory::find_tensor(info, p + ".ssm_dt.bias");
-    auto* ssm_out = OpFactory::ssm_scan(ssm_normed, ssm_a, ssm_alpha, ssm_beta, ssm_dt, "ssm_out", layer_idx);
+    auto* ssm_raw = OpFactory::ssm_scan(conv_out, ssm_a, ssm_alpha, ssm_beta, ssm_dt,
+                                          config_.ssm_inner_size, "ssm_raw", layer_idx);
 
+    // RMSNormGated: rms_norm(ssm_output, norm_w) * silu(z_gate)
+    auto* ssm_norm_w = OpFactory::find_tensor(info, p + ".ssm_norm.weight");
+    auto* ssm_normed = OpFactory::rms_norm(ssm_raw, ssm_norm_w, config_.rms_norm_eps, "ssm_normed", layer_idx);
     auto* z_act = OpFactory::silu(z_gate, "z_act", layer_idx);
-    auto* mixed = OpFactory::mul(ssm_out, z_act, "ssm_mixed", layer_idx);
+    auto* mixed = OpFactory::mul(ssm_normed, z_act, "ssm_mixed", layer_idx);
     auto* out_w = OpFactory::find_tensor(info, p + ".ssm_out.weight");
     auto* ssm_final = OpFactory::linear(mixed, out_w, "ssm_final", layer_idx, true);
 
@@ -172,16 +176,22 @@ Tensor* Qwen35Model::build_ssm_layer(Tensor* input, const GGUFInfo& info, int la
     return OpFactory::add(ffn_out, attn_res, "layer_out", layer_idx);
 }
 
-Tensor* Qwen35Model::build_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx, Tensor* rope_cos, Tensor* rope_sin) {
+Tensor* Qwen35Model::build_linear_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx, Tensor* rope_cos, Tensor* rope_sin) {
     std::string p = std::format("blk.{}", layer_idx);
-    
+    // attn_q.weight [4096, 1024] = [num_heads * head_dim * 2, hidden]
+    // 前 2048 是 Q，后 2048 是 gate（attention 输出后乘 sigmoid(gate)）
+    int q_dim = config_.head_count * config_.key_length;
+
     auto* norm_w = OpFactory::find_tensor(info, p + ".attn_norm.weight");
     auto* x_norm = OpFactory::rms_norm(input, norm_w, config_.rms_norm_eps, "attn_x_norm", layer_idx);
 
     auto* q_w = OpFactory::find_tensor(info, p + ".attn_q.weight");
     auto* k_w = OpFactory::find_tensor(info, p + ".attn_k.weight");
     auto* v_w = OpFactory::find_tensor(info, p + ".attn_v.weight");
-    auto* q_flat = OpFactory::linear(x_norm, q_w, "q_flat", layer_idx, true);
+    // q_proj 输出 [B, seq, q_dim*2]，拆分成 Q 和 gate
+    auto* q_proj = OpFactory::linear(x_norm, q_w, "q_proj", layer_idx, true);
+    auto* q_flat = OpFactory::narrow(q_proj, 2, 0, q_dim, "q_flat", layer_idx);
+    auto* gate_flat = OpFactory::narrow(q_proj, 2, q_dim, q_dim, "gate_flat", layer_idx);
     auto* k_flat = OpFactory::linear(x_norm, k_w, "k_flat", layer_idx, true);
     auto* v_flat = OpFactory::linear(x_norm, v_w, "v_flat", layer_idx, true);
 
@@ -195,14 +205,17 @@ Tensor* Qwen35Model::build_attn_layer(Tensor* input, const GGUFInfo& info, int l
     auto* k_normed = OpFactory::rms_norm(k_4d, k_norm_w, config_.rms_norm_eps, "k_normed", layer_idx);
 
     auto [q_rope, k_rope] = OpFactory::apply_rope(q_normed, k_normed, rope_cos, rope_sin, nullptr, "", layer_idx);
-    
+
     float scale = 1.0f / std::sqrt(static_cast<float>(config_.key_length));
 
     auto* attn_4d = OpFactory::SDPA(q_rope, k_rope, v_4d, nullptr, scale, true, config_.head_count / config_.head_count_kv, "attn_4d", layer_idx);
 
-    auto* attn_flat = OpFactory::permute_reshape(attn_4d, {0, 2, 1, 3}, {1, -1, config_.head_count * config_.key_length}, "attn_flat", layer_idx);
+    auto* attn_flat = OpFactory::permute_reshape(attn_4d, {0, 2, 1, 3}, {1, -1, q_dim}, "attn_flat", layer_idx);
+    // gate: sigmoid(gate_flat) * attn_flat，再经过 o_proj
+    auto* gate_act = OpFactory::sigmoid(gate_flat, "gate_act", layer_idx);
+    auto* gated_attn = OpFactory::mul(gate_act, attn_flat, "gated_attn", layer_idx);
     auto* out_w = OpFactory::find_tensor(info, p + ".attn_output.weight");
-    auto* attn_out = OpFactory::linear(attn_flat, out_w, "attn_out", layer_idx, true);
+    auto* attn_out = OpFactory::linear(gated_attn, out_w, "attn_out", layer_idx, true);
     auto* attn_res = OpFactory::add(attn_out, input, "attn_res", layer_idx);
 
     auto* ffn_norm_w = OpFactory::find_tensor(info, p + ".post_attention_norm.weight");

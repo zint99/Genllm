@@ -1,8 +1,10 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include "utils/tools.hpp"
 #include "core/tensor.hpp"
 #include "core/gguf_parser.h"
 
@@ -21,6 +23,7 @@ struct OpFactory {
         int32_t layer_id = -1
     ){
         if(dims.size()>4){
+            LOG_ERROR("dims size must 1~4");
             throw std::runtime_error("dims size must 1~4");
         }
         Tensor* t = new Tensor();
@@ -131,10 +134,7 @@ struct OpFactory {
         t->src[0] = input;
         t->src[1] = OpFactory::weight_placeholder(weight_info, weight_info->name,layer_id);
         t->op_params[0] = eps;
-
-        
         OpFactory::compute_strides(t);
-
         return t;
     }
     static std::tuple<Tensor*, Tensor*> rope_cache(
@@ -189,6 +189,38 @@ struct OpFactory {
         OpFactory::compute_strides(t);
         return t;
     }
+    // y = sigmoid(x)
+    static Tensor* sigmoid(Tensor* input, const std::string& name = "", int32_t layer_id = -1){
+        Tensor* t = new Tensor;
+        t->name = name;
+        t->layer_id = layer_id;
+        t->dtype = input->dtype;
+        t->type = TensorType::TENSOR_TYPE_ACTIVATION;
+        t->op_type = OperationType::OP_TYPE_SIGMOID;
+        std::copy(input->dims.begin(), input->dims.end(), t->dims.begin());
+        t->src[0] = input;
+        OpFactory::compute_strides(t);
+        return t;
+    }
+    // narrow: take a slice along one dimension (view, no copy)
+    // op_params: [0]=dim, [1]=start, [2]=size
+    static Tensor* narrow(Tensor* input, int dim, int64_t start, int64_t size,
+                          const std::string& name = "", int32_t layer_id = -1){
+        Tensor* t = new Tensor;
+        t->name = name;
+        t->layer_id = layer_id;
+        t->dtype = input->dtype;
+        t->type = TensorType::TENSOR_TYPE_VIEW;
+        t->op_type = OperationType::OP_TYPE_NARROW;
+        std::copy(input->dims.begin(), input->dims.end(), t->dims.begin());
+        t->dims[dim] = size;
+        t->op_params[0] = static_cast<float>(dim);
+        t->op_params[1] = static_cast<float>(start);
+        t->op_params[2] = static_cast<float>(size);
+        t->src[0] = input;
+        OpFactory::compute_strides(t);
+        return t;
+    }
     // [X,Z] = [X,Y] * [Y,Z]
     static Tensor* mul(
         Tensor* a, 
@@ -198,6 +230,7 @@ struct OpFactory {
     ) {
         for (int i = 0; i < TENSOR_MAX_DIMS; ++i) {
             if (a->dims[i] != b->dims[i] && a->dims[i] > 0 && b->dims[i] > 0) {
+                LOG_ERROR("mul: shape mismatch");
                 throw std::runtime_error("mul: shape mismatch");
             }
         }
@@ -269,6 +302,7 @@ struct OpFactory {
                 new_shape[infer_idx] = -1;  // 保持动态
             } else {
                 if (src_elements % known_elements != 0) {
+                    LOG_ERROR(std::format("Reshape invalid: {} elements cannot fit into shape", src_elements));
                     throw std::runtime_error(
                         std::format("Reshape invalid: {} elements cannot fit into shape", src_elements));
                 }
@@ -282,6 +316,7 @@ struct OpFactory {
                 if (d > 0) target_elements *= static_cast<size_t>(d);
             }
             if (src_elements != target_elements) {
+                LOG_ERROR(std::format("Reshape mismatch: src={} vs target={}", src_elements, target_elements));
                 throw std::runtime_error(
                     std::format("Reshape mismatch: src={} vs target={}", src_elements, target_elements));
             }
@@ -320,15 +355,18 @@ struct OpFactory {
         int src_ndim = static_cast<int>(src_dims.size());
         // 2. 验证 perm 范围
         if (perm.size() != static_cast<size_t>(src_ndim)) {
+            LOG_ERROR(std::format("Permute dim mismatch: perm.size()={} vs src_ndim={}", perm.size(), src_ndim));
             throw std::runtime_error(std::format("Permute dim mismatch: perm.size()={} vs src_ndim={}", perm.size(), src_ndim));
         }
         for (size_t i = 0; i < perm.size(); ++i) {
             if (perm[i] < 0 || perm[i] >= src_ndim) {
+                LOG_ERROR(std::format("Permute index {} out of range [0, {})", perm[i], src_ndim));
                 throw std::runtime_error(std::format("Permute index {} out of range [0, {})", perm[i], src_ndim));
             }
         }
 
         Tensor* t = new Tensor();
+        t->data = nullptr;
         t->name = name.empty() ? input->name + "_permute" : name;
         t->dtype = input->dtype;
         t->layer_id = layer_id;
@@ -371,6 +409,7 @@ struct OpFactory {
     }
     static Tensor* repeat_kv(Tensor* kv, int n_rep, const std::string& name = ""){
         // todo...
+        LOG_ERROR("repeat_kv not implemented yet");
         throw std::runtime_error("repeat_kv not implemented yet");
     }
     //Scaled Dot-Product Attention
@@ -386,6 +425,7 @@ struct OpFactory {
         int32_t layer_id = -1
     ){
         if (!q_rope || !k_rope || !v_4d) {
+            LOG_ERROR("sdpa: null input tensor");
             throw std::runtime_error("sdpa: null input tensor");
         }
         // 验证维度
@@ -395,6 +435,7 @@ struct OpFactory {
             num_kv_groups = static_cast<int>(n_heads / n_kv_heads);
         }
         if (n_heads % n_kv_heads != 0) {
+            LOG_ERROR(std::format("sdpa: n_heads={} must be divisible by n_kv_heads={}", n_heads, n_kv_heads));
             throw std::runtime_error(std::format("sdpa: n_heads={} must be divisible by n_kv_heads={}", n_heads, n_kv_heads));
         }
         // 创建输出 Tensor
@@ -447,6 +488,7 @@ struct OpFactory {
         int32_t layer_id = -1
     ){
         if (!q || !k || !cos_cache || !sin_cache) {
+            LOG_ERROR("apply_rope: nullptr input tensor");
             throw std::runtime_error("apply_rope: nullptr input tensor");
         }
         // 提取 Q/K 的 head_dim (最后一个维度)
@@ -458,10 +500,12 @@ struct OpFactory {
             }
         }
         if (head_dim <= 0 || head_dim % 2 != 0) {
+            LOG_ERROR("apply_rope: head_dim must be positive even number");
             throw std::runtime_error("apply_rope: head_dim must be positive even number");
         }
         int64_t rope_dim = cos_cache->dims[1];
         if (rope_dim > head_dim || rope_dim % 2 != 0) {
+            LOG_ERROR(std::format("apply_rope: invalid cache dim. cache_dim={}, head_dim={}", rope_dim, head_dim));
             throw std::runtime_error(std::format(
                 "apply_rope: invalid cache dim. cache_dim={}, head_dim={}", rope_dim, head_dim));
         }
@@ -510,6 +554,7 @@ struct OpFactory {
                 return &t;
             }
         }
+        LOG_ERROR(std::format("Tensor not found: {}", name));
         throw std::runtime_error(std::format("Tensor not found: {}", name));
     }
         // ──────────────────────────────────────────────────────────────────
@@ -544,11 +589,12 @@ struct OpFactory {
     // ssm_scan: Mamba2 Selective Scan / Chunk Scan 抽象节点
     // ──────────────────────────────────────────────────────────────────
     static Tensor* ssm_scan(
-        Tensor* input,                  // [B, L, D_inner] (conv_out after rms_norm)
+        Tensor* input,                  // [B, L, D_inner] (conv_out)
         const TensorInfo* a_info,       // ssm_a
         const TensorInfo* alpha_info,   // ssm_alpha (B分支)
         const TensorInfo* beta_info,    // ssm_beta  (C分支)
         const TensorInfo* dt_info,      // ssm_dt.bias
+        int64_t output_inner_size = 0,  // 0=与输入相同，否则覆盖最后一维
         const std::string& name = "",
         int32_t layer_id = -1
     ){
@@ -557,10 +603,18 @@ struct OpFactory {
         t->layer_id = layer_id;
         t->type = TensorType::TENSOR_TYPE_ACTIVATION;
         t->dtype = input->dtype;
-        t->op_type = OperationType::OP_TYPE_SSM_SCAN; // ⚠️ 需在枚举中定义
-        
-        // 输出形状对齐输入 (后端负责内部状态递推与 chunk 并行)
+        t->op_type = OperationType::OP_TYPE_SSM_SCAN;
+
         std::copy(input->dims.begin(), input->dims.end(), t->dims.begin());
+        if (output_inner_size > 0) {
+            // 找最后一个非零维度并覆盖
+            for (int i = TENSOR_MAX_DIMS - 1; i >= 0; --i) {
+                if (t->dims[i] != 0) {
+                    t->dims[i] = output_inner_size;
+                    break;
+                }
+            }
+        }
         
         t->src[0] = input;
         t->src[1] = OpFactory::weight_placeholder(a_info, a_info->name, layer_id);
@@ -586,7 +640,10 @@ struct OpFactory {
                 break;
             }
         }
-        if (input_ndim == 0) throw std::runtime_error("Empty input shape");
+        if (input_ndim == 0) {
+            LOG_ERROR("Empty input shape");
+            throw std::runtime_error("Empty input shape");
+        }
         int64_t weight_out = weight_dims[0]; 
         int64_t weight_in = weight_dims[1];
         if (!transpose) {
@@ -594,6 +651,7 @@ struct OpFactory {
         }
         int64_t input_last = input_dims[input_ndim - 1];
         if (input_last > 0 && weight_in > 0 && input_last != weight_in) {
+            LOG_ERROR(std::format("Linear dimension mismatch: input last={} vs weight in={}", input_last, weight_in));
             throw std::runtime_error(std::format("Linear dimension mismatch: input last={} vs weight in={}",input_last, weight_in));
         }
         for (int i = 0; i < input_ndim - 1; ++i) {

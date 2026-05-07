@@ -96,11 +96,8 @@ std::unique_ptr<ComputeGraph> Qwen3Model::build_graph(const GGUFInfo& info){
     logits->type = TensorType::TENSOR_TYPE_OUTPUT; // 标记为输出张量
     
     // ========== Step 3: 从 logits 反向收集，构建 ComputeGraph ==========
-
     auto graph = std::make_unique<ComputeGraph>();
-
     graph->build_from_outputs({logits});
-
     return graph;
 }
 
@@ -138,7 +135,7 @@ Tensor* Qwen3Model::build_qwen3_layer(
     // [batch, seq_len, hidden_size] @ [1024, hidden_size] -> [batch, seq_len, 1024]
     Tensor* v_flat = OpFactory::linear(x_norm, v_weight, "v_flat",layer_idx,true);
     
-    // 1.3 
+    // 1.3  
     // [batch, seq_len, 2048] -> [batch, seq_len, num_heads, head_dim] -> [batch, num_heads, seq_len, head_dim]
     Tensor* q_4d = OpFactory::reshape_permute(q_flat, {1, -1, num_heads,    head_dim}, {0, 2, 1, 3}, "q_4d",layer_idx);
     // [batch, seq_len, 1024] -> [batch, seq_len, num_kv_heads, head_dim] -> [batch, num_kv_heads, seq_len, head_dim]

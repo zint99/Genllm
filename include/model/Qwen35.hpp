@@ -32,8 +32,8 @@ class Qwen35Model : public ModelBase {
 private:
     Qwen35Config config_;
     void parse_config(const GGUFInfo& info);
-    Tensor* build_ssm_layer(Tensor* input, const GGUFInfo& info, int layer_idx);
-    Tensor* build_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx, Tensor* rope_cos, Tensor* rope_sin);
+    Tensor* build_full_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx);
+    Tensor* build_linear_attn_layer(Tensor* input, const GGUFInfo& info, int layer_idx, Tensor* rope_cos, Tensor* rope_sin);
 public:
     Qwen35Model() {
         name = "Qwen35";
