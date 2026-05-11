@@ -83,6 +83,7 @@ public:
     DeviceSlot& slot(int device_id) { return devices_.at(device_id); }
     const DeviceSlot& slot(int device_id) const { return devices_.at(device_id); }
 
+    vk::Instance instance() const { return instance_; }
     vk::Device device(int device_id) const { return slot(device_id).device; }
     vk::PhysicalDevice physical_device(int device_id) const { return slot(device_id).physical_device; }
 
@@ -274,14 +275,23 @@ private:
 
             float priority = 1.0f;
             vk::DeviceQueueCreateInfo queue_info({}, queue_family, 1, &priority);
+
+            vk::PhysicalDeviceCooperativeMatrixFeaturesKHR coop_feat;
+            coop_feat.cooperativeMatrix = VK_TRUE;
             vk::DeviceCreateInfo device_info({}, queue_info);
+            device_info.pNext = &coop_feat;
 
             vk::Device dev;
             try {
                 dev = phy.createDevice(device_info);
             } catch (const vk::SystemError& e) {
-                std::println("Vulkan: skipping device {} ({})", std::string_view(props.deviceName), e.what());
-                continue;
+                vk::DeviceCreateInfo device_info_fallback({}, queue_info);
+                try {
+                    dev = phy.createDevice(device_info_fallback);
+                } catch (const vk::SystemError& e2) {
+                    std::println("Vulkan: skipping device {} ({})", std::string_view(props.deviceName), e2.what());
+                    continue;
+                }
             }
 
             auto queue = dev.getQueue(queue_family, 0);

@@ -35,7 +35,7 @@ GLSLC = "glslc"
 def compile_shader(comp_path: Path, spv_path: Path) -> bool:
     spv_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        [GLSLC, str(comp_path), "-o", str(spv_path)],
+        [GLSLC, "--target-env=vulkan1.4", str(comp_path), "-o", str(spv_path)],
         capture_output=True, text=True,
     )
     if result.returncode != 0:

@@ -71,6 +71,44 @@ void VulkanBackendProvider::print_device_info(int device_id) const {
         props.limits.maxComputeWorkGroupCount[1],
         props.limits.maxComputeWorkGroupCount[2]);
     std::println("  Max Work Group Invocations:    {}", props.limits.maxComputeWorkGroupInvocations);
+
+    auto print_cooperative_matrix_info = [&]() {
+        auto inst = ctx_->instance();
+        auto fn = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR>(
+            inst.getProcAddr("vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR"));
+        if (!fn) {
+            std::println("  Cooperative Matrix: not supported");
+            return;
+        }
+
+        uint32_t count = 0;
+        VkResult result = fn(static_cast<VkPhysicalDevice>(phy), &count, nullptr);
+        if (result != VK_SUCCESS || count == 0) {
+            std::println("  Cooperative Matrix: no configurations");
+            return;
+        }
+
+        std::vector<VkCooperativeMatrixPropertiesKHR> cm_props(count);
+        for (auto& p : cm_props) {
+            p.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+            p.pNext = nullptr;
+        }
+        fn(static_cast<VkPhysicalDevice>(phy), &count, cm_props.data());
+
+        std::println("  --- Cooperative Matrix (KHR) ---");
+        for (size_t i = 0; i < cm_props.size(); ++i) {
+            auto& p = cm_props[i];
+            std::println("    [{0}]: M={1} N={2} K={3} A={4} B={5} C={6} Result={7} scope={8} satAcc={9}",
+                i, p.MSize, p.NSize, p.KSize,
+                vk::to_string(static_cast<vk::ComponentTypeKHR>(p.AType)),
+                vk::to_string(static_cast<vk::ComponentTypeKHR>(p.BType)),
+                vk::to_string(static_cast<vk::ComponentTypeKHR>(p.CType)),
+                vk::to_string(static_cast<vk::ComponentTypeKHR>(p.ResultType)),
+                vk::to_string(static_cast<vk::ScopeKHR>(p.scope)),
+                static_cast<bool>(p.saturatingAccumulation));
+        }
+    };
+    print_cooperative_matrix_info();
 }
 
 static struct VulkanBackendProviderRegistrar {

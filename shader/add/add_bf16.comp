@@ -7,7 +7,7 @@ layout(local_size_x = 256) in;
 
 layout(push_constant) uniform Params {
     uint64_t total_elements;
-}params;
+} params;
 
 layout(std430, binding = 0) readonly buffer Src0 {
     bfloat16_t src0[];

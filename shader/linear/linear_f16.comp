@@ -1,0 +1,86 @@
+#version 460
+
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+const uint TILE = 16;
+
+layout(local_size_x = 32, local_size_y = 1) in;
+
+layout(push_constant) uniform Params {
+    int B;
+    int M;
+    int N;
+    int K;
+    int has_bias;
+    int transpose_w;
+} p;
+
+layout(binding = 0) readonly  buffer SrcX { float16_t x[]; };
+layout(binding = 1) readonly  buffer SrcW { float16_t w[]; };
+layout(binding = 2) readonly  buffer SrcB { float16_t bias[]; };
+layout(binding = 3) buffer        Dst  { float16_t dst[]; };
+
+shared float sh_C[TILE][TILE];
+
+void main() {
+    uint batch  = gl_WorkGroupID.z;
+    uint tile_m = gl_WorkGroupID.y;
+    uint tile_n = gl_WorkGroupID.x;
+
+    uint i0 = tile_m * TILE;
+    uint j0 = tile_n * TILE;
+    uint off_x = batch * p.M * p.K;
+    uint off_o = batch * p.M * p.N;
+
+    coopmat<float16_t, gl_ScopeSubgroup, TILE, TILE, gl_MatrixUseA> a;
+    coopmat<float16_t, gl_ScopeSubgroup, TILE, TILE, gl_MatrixUseB> b;
+    coopmat<float32_t, gl_ScopeSubgroup, TILE, TILE, gl_MatrixUseAccumulator> c;
+
+    c = coopmat<float32_t, gl_ScopeSubgroup, TILE, TILE, gl_MatrixUseAccumulator>(0.0);
+
+    for (uint kt = 0; kt < p.K; kt += TILE) {
+        coopMatLoad(a, x, off_x + i0 * p.K + kt, p.K, gl_CooperativeMatrixLayoutRowMajor);
+        if (p.transpose_w != 0) {
+            coopMatLoad(b, w, j0 * p.K + kt, p.K, gl_CooperativeMatrixLayoutColumnMajor);
+        } else {
+            coopMatLoad(b, w, kt * p.N + j0, p.N, gl_CooperativeMatrixLayoutRowMajor);
+        }
+        c = coopMatMulAdd(a, b, c);
+    }
+
+    {
+        uint sid = gl_SubgroupInvocationID;
+        uint tr = sid / 8;
+        uint tc = sid % 8;
+        for (uint i = 0; i < c.length(); i++) {
+            uint lr = i / 2;
+            uint lc = i % 2;
+            uint r = tr * 4 + lr;
+            uint cc = tc * 2 + lc;
+            sh_C[r][cc] = c[i];
+        }
+    }
+    barrier();
+    memoryBarrierShared();
+
+    {
+        uint r = gl_LocalInvocationID.x;
+        if (r < TILE) {
+            uint gr = i0 + r;
+            if (gr < p.M) {
+                for (uint cc = 0; cc < TILE; cc++) {
+                    uint gc = j0 + cc;
+                    if (gc < p.N) {
+                        float v = sh_C[r][cc];
+                        if (p.has_bias != 0) v += float(bias[gc]);
+                        dst[off_o + gr * p.N + gc] = float16_t(v);
+                    }
+                }
+            }
+        }
+    }
+}
