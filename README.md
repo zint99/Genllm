@@ -38,6 +38,14 @@
 - **Paged Attention**: 逐 block 遍历 page table，warp 处理单个 Q position，online softmax
 - **Element-wise**: add/sub/mul/div/silu/gelu/relu 简单 grid-stride 并行
 
+## 环境要求
+
+| 依赖 | 最低版本 | 说明 |
+|------|---------|------|
+| GCC | 15+ | 需要 libstdc++ 对 `std::vector` 等 range 类型的 `std::formatter` 支持（P2286R8） |
+| CMake | 3.28 | — |
+| CUDA Toolkit | 13+ | 仅 CUDA 后端需要 |
+
 ## 构建
 
 ```bash
