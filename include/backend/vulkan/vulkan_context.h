@@ -25,10 +25,11 @@ public:
 
     // ==================== 每设备资源 ====================
     struct DeviceSlot {
+        uint32_t subgroup_size = 32;
+        uint32_t compute_queue_family = 0;
         vk::PhysicalDevice physical_device;
         vk::Device device;
         vk::Queue compute_queue;
-        uint32_t compute_queue_family = 0;
         vk::CommandPool command_pool;
         vk::DescriptorPool descriptor_pool;
         std::unique_ptr<std::mutex> pipeline_mutex = std::make_unique<std::mutex>();
@@ -54,6 +55,7 @@ public:
             , compute_queue_family(o.compute_queue_family)
             , command_pool(std::exchange(o.command_pool, nullptr))
             , descriptor_pool(std::exchange(o.descriptor_pool, nullptr))
+            , subgroup_size(o.subgroup_size)
             , pipeline_mutex(std::move(o.pipeline_mutex))
             , pipeline_infos(std::move(o.pipeline_infos))
         {}
@@ -86,6 +88,7 @@ public:
     vk::Instance instance() const { return instance_; }
     vk::Device device(int device_id) const { return slot(device_id).device; }
     vk::PhysicalDevice physical_device(int device_id) const { return slot(device_id).physical_device; }
+    uint32_t subgroup_size(int device_id) const { return slot(device_id).subgroup_size; }
 
     // ==================== Pipeline 管理（懒加载） ====================
 
@@ -194,7 +197,9 @@ public:
     vk::Buffer createStagingBuffer(int device_id, size_t size, vk::DeviceMemory* out_memory, void** out_mapped) {
         auto& s = slot(device_id);
         auto dev = s.device;
-        vk::BufferCreateInfo buf_info({}, size, vk::BufferUsageFlagBits::eTransferSrc, vk::SharingMode::eExclusive);
+        vk::BufferCreateInfo buf_info({}, size,
+            vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst,
+            vk::SharingMode::eExclusive);
         auto buffer = dev.createBuffer(buf_info);
 
         auto mem_reqs = dev.getBufferMemoryRequirements(buffer);
@@ -226,6 +231,48 @@ public:
         if (mapped) dev.unmapMemory(memory);
         if (buffer) dev.destroyBuffer(buffer);
         if (memory) dev.freeMemory(memory);
+    }
+
+    vk::Buffer createSmallSSBO(int device_id, size_t size, vk::DeviceMemory* out_mem, void** out_mapped) {
+        auto& s = slot(device_id);
+        auto dev = s.device;
+        vk::BufferCreateInfo bi({}, size, vk::BufferUsageFlagBits::eStorageBuffer, vk::SharingMode::eExclusive);
+        auto buf = dev.createBuffer(bi);
+        auto mr = dev.getBufferMemoryRequirements(buf);
+        auto mp = s.physical_device.getMemoryProperties();
+        uint32_t mt = UINT32_MAX;
+        for (uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
+            if ((mr.memoryTypeBits & (1 << i)) &&
+                (mp.memoryTypes[i].propertyFlags & (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent))) {
+                mt = i; break;
+            }
+        }
+        vk::MemoryAllocateInfo ai(mr.size, mt);
+        auto mem = dev.allocateMemory(ai);
+        dev.bindBufferMemory(buf, mem, 0);
+        *out_mem = mem;
+        *out_mapped = dev.mapMemory(mem, 0, size);
+        return buf;
+    }
+
+    void destroySmallBuffer(vk::Buffer buf, vk::DeviceMemory mem, void* mapped) {
+        auto& s = slot(0);
+        if (mapped) s.device.unmapMemory(mem);
+        if (buf) s.device.destroyBuffer(buf);
+        if (mem) s.device.freeMemory(mem);
+    }
+
+    // ==================== Buffer → device_id 查找 ====================
+
+    void registerBuffer(size_t buffer_handle, int device_id) {
+        buffer_device_[buffer_handle] = device_id;
+    }
+
+    int bufferDeviceId(size_t buffer_handle) const {
+        auto it = buffer_device_.find(buffer_handle);
+        if (it == buffer_device_.end())
+            throw std::runtime_error("VulkanContext: buffer handle not registered");
+        return it->second;
     }
 
 private:
@@ -273,6 +320,11 @@ private:
             }
             if (!has_compute) continue;
 
+            vk::PhysicalDeviceSubgroupProperties subgroup_props;
+            vk::PhysicalDeviceProperties2 props2({}, &subgroup_props);
+            phy.getProperties2(&props2);
+            uint32_t sg_size = subgroup_props.subgroupSize;
+
             float priority = 1.0f;
             vk::DeviceQueueCreateInfo queue_info({}, queue_family, 1, &priority);
 
@@ -310,6 +362,7 @@ private:
             slot.compute_queue_family = queue_family;
             slot.command_pool = cmd_pool;
             slot.descriptor_pool = desc_pool;
+            slot.subgroup_size = sg_size;
             devices_.push_back(std::move(slot));
 
             std::println("Vulkan[{}]: {}", devices_.size() - 1, std::string_view(props.deviceName));
@@ -322,6 +375,7 @@ private:
 
     vk::Instance instance_;
     std::vector<DeviceSlot> devices_;
+    std::unordered_map<size_t, int> buffer_device_;
 };
 
 #endif // BACKEND_VULKAN

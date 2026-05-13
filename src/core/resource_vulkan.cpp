@@ -62,6 +62,7 @@ void* VulkanMemoryResource::allocate(size_t size, size_t alignment) {
 
     device_.bindBufferMemory(buffer_, memory_, 0);
     buffer_handle_ = reinterpret_cast<size_t>(static_cast<VkBuffer>(buffer_));
+    ctx.registerBuffer(buffer_handle_, device_id_);
 
     return nullptr;
 }

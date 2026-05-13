@@ -339,10 +339,10 @@ namespace ops {
             auto* wp = static_cast<const Tw*>(w->data);
             auto* bp = bias && bias->data ? static_cast<const Tw*>(bias->data) : nullptr;
             if(transpose_w){ // 尽管在数学上需要先将w进行转置，但是我们在具体实践中不要。
-                int64_t rows    = x->dims[1];
-                int64_t common  = w->dims[1];
-                int64_t cols    = w->dims[0];
-                linear<Tw>(op, xp, wp, rows, common, cols, bp);
+                int64_t M    = x->dims[1]; // M
+                int64_t N    = w->dims[1]; // N
+                int64_t K    = w->dims[0]; // K
+                linear<Tw>(op, xp, wp, M, N, K, bp);
             }else{
                 throw std::runtime_error("Linear transpose = false not impl");
             }

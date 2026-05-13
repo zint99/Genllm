@@ -122,6 +122,7 @@ void Executor::forward() {
             for (const auto& level : grp.levels) {
                 for (Tensor* t : level) {
                    this->execute_tensor(t, grp.device_id);
+                   ops::println(t);
                 }
             }
         }
@@ -141,6 +142,7 @@ void Executor::forward() {
         for (const auto& level : step_layers_[i].levels) {
             for (Tensor* t : level) {
                 this->execute_tensor(t, step_layers_[i].device_id);
+                ops::println(t);
             }
         }
         if (i + 1 < step_layers_.size() && step_layers_[i].layer_id != -1) {

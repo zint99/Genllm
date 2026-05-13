@@ -95,20 +95,25 @@ void VulkanBackendProvider::print_device_info(int device_id) const {
         }
         fn(static_cast<VkPhysicalDevice>(phy), &count, cm_props.data());
 
-        std::println("  --- Cooperative Matrix (KHR) ---");
+        std::println("Cooperative Matrix (KHR)");
         for (size_t i = 0; i < cm_props.size(); ++i) {
             auto& p = cm_props[i];
-            std::println("    [{0}]: M={1} N={2} K={3} A={4} B={5} C={6} Result={7} scope={8} satAcc={9}",
-                i, p.MSize, p.NSize, p.KSize,
+            std::println("    [{:0>2}]: {:>13}[{:>2},{:>2}] @ {:>13}[{:>2},{:>2}] + {:>7}[{:>2},{:>2}] = {:>7}[{:>2},{:>2}],scope={},satAcc={}",
+                i,
                 vk::to_string(static_cast<vk::ComponentTypeKHR>(p.AType)),
+                p.MSize, p.KSize,
                 vk::to_string(static_cast<vk::ComponentTypeKHR>(p.BType)),
+                p.KSize, p.NSize,
                 vk::to_string(static_cast<vk::ComponentTypeKHR>(p.CType)),
+                p.MSize, p.NSize,
                 vk::to_string(static_cast<vk::ComponentTypeKHR>(p.ResultType)),
+                p.MSize, p.NSize,
                 vk::to_string(static_cast<vk::ScopeKHR>(p.scope)),
-                static_cast<bool>(p.saturatingAccumulation));
+                static_cast<bool>(p.saturatingAccumulation)
+            );
         }
     };
-    print_cooperative_matrix_info();
+    print_cooperative_matrix_info(); // A[m,k] @ B[k,n] + C[m,n] = D[m,n]
 }
 
 static struct VulkanBackendProviderRegistrar {

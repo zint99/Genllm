@@ -1,0 +1,85 @@
+#version 460
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_bfloat16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_shader_subgroup_shuffle_relative : require
+
+const int HD = 128;
+const int VEC = HD / 32;
+const int WARPS = 4;
+
+layout(local_size_x = 128, local_size_y = 1) in;
+
+layout(push_constant) uniform P {
+    int B;
+    int n_heads;
+    int Sq;
+    int n_kv_heads;
+    int Skv;
+    int head_dim;
+    int num_kv_groups;
+    float scale;
+    int causal;
+} p;
+
+layout(std430, binding = 0) readonly buffer Qb { bfloat16_t Q[]; };
+layout(std430, binding = 1) readonly buffer Kb { bfloat16_t K[]; };
+layout(std430, binding = 2) readonly buffer Vb { bfloat16_t V[]; };
+layout(std430, binding = 3) buffer        Ob { bfloat16_t O[]; };
+
+void main() {
+    int lane = int(gl_SubgroupInvocationID);
+    int warp = int(gl_SubgroupID);
+    uint bh  = warp + gl_WorkGroupID.x * WARPS;
+    if (bh >= p.B * p.n_heads) return;
+
+    int hi  = int(bh) % p.n_heads;
+    int bi  = int(bh) / p.n_heads;
+    int kvi = hi / p.num_kv_groups;
+    int qp  = int(gl_WorkGroupID.y);
+
+    int q_base = (bi * p.n_heads  + hi)  * p.Sq  * p.head_dim;
+    int kv_base = (bi * p.n_kv_heads + kvi) * p.Skv * p.head_dim;
+    int o_base  = q_base;
+
+    float qr[VEC];
+    for (int i = 0; i < VEC; i++) {
+        qr[i] = float(Q[q_base + qp * p.head_dim + (lane + i * 32)]);
+    }
+
+    float m = -1.0 / 0.0;
+    float l = 0.0;
+    float or_[VEC] = float[VEC](0.0, 0.0, 0.0, 0.0);
+
+    for (int j = 0; j < p.Skv; j++) {
+        if (p.causal != 0 && j > qp) break;
+
+        float s = 0.0;
+        for (int i = 0; i < VEC; i++) {
+            s += qr[i] * float(K[kv_base + j * p.head_dim + (lane + i * 32)]);
+        }
+        s = subgroupShuffleDown(s, 16) + s;
+        s = subgroupShuffleDown(s, 8)  + s;
+        s = subgroupShuffleDown(s, 4)  + s;
+        s = subgroupShuffleDown(s, 2)  + s;
+        s = subgroupShuffleDown(s, 1)  + s;
+        s = subgroupShuffle(s, 0) * p.scale;
+
+        float mn = max(m, s);
+        float es = exp(s - mn);
+        float ep = exp(m - mn);
+
+        for (int i = 0; i < VEC; i++) {
+            or_[i] = or_[i] * ep + es * float(V[kv_base + j * p.head_dim + (lane + i * 32)]);
+        }
+        l = l * ep + es;
+        m = mn;
+    }
+
+    float inv_l = 1.0 / l;
+    for (int i = 0; i < VEC; i++) {
+        O[o_base + qp * p.head_dim + (lane + i * 32)] = bfloat16_t(or_[i] * inv_l);
+    }
+}

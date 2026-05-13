@@ -169,7 +169,7 @@ namespace ops {
         int32_t num_blocks = static_cast<int32_t>(layer.page_table.size());
         int32_t block_size = PAGE_BLOCK_SIZE;
         size_t elem_size = data_type_size(dtype);
-        bool apply_causal = causal && Sq > 1;
+        bool apply_causal = causal;
 
         for (int32_t b = 0; b < B; ++b) {
             for (int32_t h = 0; h < n_heads; ++h) {
@@ -179,7 +179,8 @@ namespace ops {
                     float l = 0.0f;
                     std::vector<float> o(head_dim, 0.0f);
 
-                    int32_t limit = apply_causal ? std::min(sq, total_cached - 1) : (total_cached - 1);
+                    int32_t q_abs = total_cached - Sq + sq;
+                    int32_t limit = apply_causal ? q_abs : (total_cached - 1);
 
                     for (int32_t blk = 0; blk < num_blocks; ++blk) {
                         int32_t blk_start = blk * block_size;
@@ -195,7 +196,7 @@ namespace ops {
 
                         for (int32_t pos_in_blk = 0; pos_in_blk < blk_end - blk_start; ++pos_in_blk) {
                             int32_t kv_pos = blk_start + pos_in_blk;
-                            if (apply_causal && kv_pos > sq) break;
+                            if (apply_causal && kv_pos > q_abs) break;
 
                             size_t kv_off = (static_cast<size_t>(pos_in_blk) * n_kv_heads + kv_h) * head_dim;
                             float score = 0.0f;

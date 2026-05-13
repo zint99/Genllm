@@ -15,7 +15,7 @@ option(BUILD_TEST      "build test file with ./tests/*.cpp" OFF)
 option(BACKEND_CPU     "Enable CPU backend" OFF)
 option(BACKEND_CUDA    "Enable CUDA backend" OFF)
 option(BACKEND_SYCL    "Enable SYCL backend" OFF)
-option(BACKEND_VULKAN  "Enable Vulkan backend" ON)
+option(BACKEND_VULKAN  "Enable Vulkan backend" OFF)
 
 # 检查是否启用了至少一个后端
 if(NOT BACKEND_CPU AND NOT BACKEND_CUDA AND NOT BACKEND_SYCL AND NOT BACKEND_VULKAN)
@@ -36,7 +36,7 @@ project(
 if(BACKEND_CPU)
     find_package(OpenMP REQUIRED)
     add_definitions(-DBACKEND_CPU)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mavx2 -mf16c -mfma -fopenmp ")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -mavx2 -mf16c -mfma -fopenmp ")
 endif()
 
 # cuda配置,avx2,openmp,fma
@@ -50,7 +50,7 @@ if(BACKEND_CUDA)
     find_package(CUDAToolkit REQUIRED)
 
     set(CMAKE_CUDA_ARCHITECTURES "native")  # 常见现代GPU架构
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mavx2 -mf16c -mfma -fopenmp ")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -mavx2 -mf16c -mfma -fopenmp ")
 endif()
 
 # vk配置,avx2,openmp,fma
@@ -58,7 +58,7 @@ if(BACKEND_VULKAN)
     add_definitions(-DBACKEND_VULKAN)
     find_package(Vulkan REQUIRED)
     find_package(OpenMP REQUIRED)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -mavx2 -mf16c -mfma -fopenmp ")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -mavx2 -mf16c -mfma -fopenmp ")
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)

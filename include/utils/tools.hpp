@@ -149,12 +149,12 @@ namespace ops{
             device_copy = std::make_unique<char[]>(nbytes);
             switch (t->device) {
             case Device::CUDA:
-    #ifdef BACKEND_CUDA
+                #ifdef BACKEND_CUDA
                 cudaMemcpy(device_copy.get(), t->data, nbytes, cudaMemcpyDeviceToHost);
-    #endif
+                #endif
                 break;
             case Device::VULKAN:
-    #ifdef BACKEND_VULKAN
+                #ifdef BACKEND_VULKAN
                 {
                     auto& ctx = VulkanContext::get();
                     int vk_dev = 0;
@@ -171,7 +171,7 @@ namespace ops{
                     std::memcpy(device_copy.get(), staging_mapped, nbytes);
                     ctx.destroyStagingBuffer(vk_dev, staging_buf, staging_mem, staging_mapped);
                 }
-    #endif
+                #endif
                 break;
             default:
                 break;

@@ -7,7 +7,7 @@
 namespace ops {
 
     void MemcpyImpl<Device::CUDA>::execute(Tensor* out, int32_t dev_id) {
-    cudaSetDevice(dev_id);
+        cudaSetDevice(dev_id);
         Tensor* src = out->src[0];
         if (!src || !src->data) {
             throw std::runtime_error("MemcpyImpl<CUDA>: source tensor has no data");

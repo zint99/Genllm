@@ -45,9 +45,8 @@ static void dispatch_rms_norm(
 
     size_t hidden_size = weight->num_elements();
     int32_t rows = static_cast<int32_t>(src->num_elements() / hidden_size);
-    float eps = out->op_params[0];
 
-    NormPushConstants pc{rows, static_cast<int32_t>(hidden_size), eps};
+    NormPushConstants pc{rows, static_cast<int32_t>(hidden_size), out->op_params[0]};
 
     // 256 threads/WG, subgroupSize=32 → 8 subgroups/WG → 8 rows/WG
     uint32_t wg_x = (static_cast<uint32_t>(rows) + 7) / 8;

@@ -11,12 +11,15 @@ constexpr int32_t PAGE_BLOCK_SIZE = 16;
 class BlockPool {
 public:
     BlockPool() = default;
-    BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,int32_t n_kv_heads, int32_t head_dim, DataType dtype);
+    BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,int32_t n_kv_heads, int32_t head_dim, DataType dtype, size_t dev_handle = 0);
 
     [[nodiscard]] int32_t alloc();
     void free(int32_t block_id);
     void reset();
     [[nodiscard]] void* block_data(int32_t block_id) const;
+    [[nodiscard]] size_t device_handle() const { return dev_handle_; }
+    [[nodiscard]] size_t device_offset() const { return dev_offset_; }
+    void set_device_offset(size_t off) { dev_offset_ = off; }
     bool empty() const { return num_blocks_ == 0; }
     int32_t num_blocks() const { return num_blocks_; }
     int32_t num_free() const { return static_cast<int32_t>(free_list_.size()); }
@@ -26,6 +29,8 @@ private:
     int32_t num_blocks_ = 0;
     int32_t block_capacity_ = 0;
 
+    size_t dev_handle_ = 0;
+    size_t dev_offset_ = 0;
     size_t elem_size_ = 0;
     size_t block_bytes_ = 0;
     size_t buffer_bytes_ = 0;
@@ -65,6 +70,8 @@ public:
     void append_kv_from_tensor(int32_t layer_id, const void* K_data, const void* V_data, int32_t n_kv_heads, int32_t Skv, int32_t head_dim, DataType dtype);
 
     void append_kv_from_pos(int32_t layer_id, const void* K_data, const void* V_data, int32_t n_kv_heads, int32_t head_dim, DataType dtype, int32_t global_pos, int32_t count);
+
+    void append_kv_pages(int32_t layer_id, int32_t count);
 
     void reset();
 

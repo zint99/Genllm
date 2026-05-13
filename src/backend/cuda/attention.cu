@@ -366,7 +366,9 @@ void SdpaImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
     int32_t head_dim = static_cast<int32_t>(Q->dims[3]);
     int32_t n_kv_heads = static_cast<int32_t>(K->dims[1]);
     int32_t Skv = static_cast<int32_t>(K->dims[2]);
+    
     int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
+
     float scale = out->op_params[1];
     bool causal = static_cast<int32_t>(out->op_params[2]) != 0;
 
