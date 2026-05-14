@@ -26,6 +26,18 @@ endif()
 
 
 
+# nvcc 不支持 GCC > 14，自动查找兼容的 gcc
+if(NOT CMAKE_CUDA_HOST_COMPILER)
+    foreach(_gcc_ver 14 13 12)
+        find_program(_gcc_${_gcc_ver} gcc-${_gcc_ver})
+        if(_gcc_${_gcc_ver})
+            set(CMAKE_CUDA_HOST_COMPILER "${_gcc_${_gcc_ver}}")
+            message(STATUS "CUDA host compiler: ${_gcc_${_gcc_ver}}")
+            break()
+        endif()
+    endforeach()
+endif()
+
 project(
     ${THIS_PROJECT_NAME}
     LANGUAGES C CXX CUDA
