@@ -1,0 +1,5380 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "Genllm",
+    "languages": [
+      "cmake",
+      "cpp",
+      "cuda",
+      "glsl",
+      "markdown",
+      "python"
+    ],
+    "frameworks": [
+      "CMake",
+      "CUDA",
+      "GGUF",
+      "Vulkan",
+      "nlohmann/json"
+    ],
+    "description": "基于 C++23 的模块化 LLM 推理框架，支持 CPU / CUDA / Vulkan 多后端，原生解析 GGUF 格式，采用 DAG 计算图 IR 和分页注意力机制。",
+    "analyzedAt": "2026-05-16T09:51:23.583Z",
+    "gitCommitHash": "72a04662ad6bf3701dc14a4accfa04fff0d10952"
+  },
+  "nodes": [
+    {
+      "id": "config:cmake/Genllm.cmake.in",
+      "type": "config",
+      "name": "Genllm.cmake.in",
+      "filePath": "cmake/Genllm.cmake.in",
+      "summary": "CMake 包配置模板文件，用于生成安装后的 GenllmConfig.cmake，导出公共头文件目录和库目标。",
+      "tags": [
+        "configuration",
+        "cmake",
+        "build-system"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "config:CMakeLists.txt",
+      "type": "config",
+      "name": "CMakeLists.txt",
+      "filePath": "CMakeLists.txt",
+      "summary": "项目主构建配置文件，定义了 CPU/CUDA/SYCL/Vulkan 多后端编译选项、源文件收集、库链接、安装规则和测试系统，要求 C++23 标准。",
+      "tags": [
+        "configuration",
+        "build-system",
+        "multi-backend",
+        "cmake"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 C++23 标准，通过 option() 宏实现后端可插拔编译；CUDA 后端自动查找兼容的 GCC 版本作为 host compiler。"
+    },
+    {
+      "id": "document:docs/series_plan.md",
+      "type": "document",
+      "name": "series_plan.md",
+      "filePath": "docs/series_plan.md",
+      "summary": "「从零手写 LLM 推理引擎」系列教程规划文档，共 12 集，涵盖 GGUF 解析、计算图 IR、Qwen3 模型结构、CPU/CUDA 推理实现、分页注意力、多后端架构等核心主题。",
+      "tags": [
+        "documentation",
+        "tutorial",
+        "architecture-overview"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/3rd/json.hpp",
+      "type": "file",
+      "name": "json.hpp",
+      "filePath": "include/3rd/json.hpp",
+      "summary": "第三方 nlohmann/json 单头文件 JSON 解析库，提供完整的 JSON 序列化/反序列化功能，供项目内 GGUF 解析和配置读取使用。",
+      "tags": [
+        "third-party",
+        "json",
+        "serialization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "单头文件（header-only）库，约 24000 行，采用大量模板元编程和 SFINAE 技术实现类型安全的 JSON 操作。"
+    },
+    {
+      "id": "file:include/backend/backend.h",
+      "type": "file",
+      "name": "backend.h",
+      "filePath": "include/backend/backend.h",
+      "summary": "后端抽象层核心头文件，定义了 BackendProvider 插件接口、BackendRegistry 单例注册系统、CPU/CUDA/Vulkan 后端提供者实现，以及 DeviceManager 设备管理器。",
+      "tags": [
+        "backend",
+        "abstraction",
+        "plugin-system",
+        "device-management"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用策略模式 + 注册表模式实现多后端可插拔架构；BackendProvider 为纯虚基类，各后端通过条件编译（#ifdef BACKEND_CUDA 等）选择性包含。"
+    },
+    {
+      "id": "class:include/backend/backend.h:BackendInfo",
+      "type": "class",
+      "name": "BackendInfo",
+      "filePath": "include/backend/backend.h",
+      "lineRange": [
+        16,
+        26
+      ],
+      "summary": "设备能力描述结构体，包含设备 ID、总内存、已用内存、算力、带宽等信息，用于负载均衡和内存估算。",
+      "tags": [
+        "data-model",
+        "device-info"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/backend/backend.h:BackendProvider",
+      "type": "class",
+      "name": "BackendProvider",
+      "filePath": "include/backend/backend.h",
+      "lineRange": [
+        29,
+        37
+      ],
+      "summary": "后端提供者纯虚基类，定义了设备可用性检测、设备数量查询、后端类型获取等统一接口，是插件式后端架构的核心抽象。",
+      "tags": [
+        "abstraction",
+        "interface",
+        "plugin-system"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/backend/backend.h:BackendRegistry",
+      "type": "class",
+      "name": "BackendRegistry",
+      "filePath": "include/backend/backend.h",
+      "lineRange": [
+        40,
+        60
+      ],
+      "summary": "后端注册表单例类，管理所有已注册的 BackendProvider 实例，仅注册可用的后端提供者。",
+      "tags": [
+        "singleton",
+        "registry",
+        "plugin-system"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/backend/backend.h:CPUBackendProvider",
+      "type": "class",
+      "name": "CPUBackendProvider",
+      "filePath": "include/backend/backend.h",
+      "lineRange": [
+        64,
+        76
+      ],
+      "summary": "CPU 后端提供者实现，始终可用，提供系统内存、CPU 名称、物理核心数、线程数等系统信息查询功能。",
+      "tags": [
+        "backend",
+        "cpu",
+        "system-info"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/backend/backend.h:DeviceManager",
+      "type": "class",
+      "name": "DeviceManager",
+      "filePath": "include/backend/backend.h",
+      "lineRange": [
+        112,
+        205
+      ],
+      "summary": "设备管理器单例类，自动检测所有已注册后端的设备信息，提供设备枚举、信息打印和设备查找功能。",
+      "tags": [
+        "singleton",
+        "device-management",
+        "enumeration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/backend/cpu/activation.h",
+      "type": "file",
+      "name": "activation.h",
+      "filePath": "include/backend/cpu/activation.h",
+      "summary": "CPU 后端激活函数算子声明头文件，定义了 SiLU、GELU、ReLU 三种激活函数的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "activation",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/arithmetic.h",
+      "type": "file",
+      "name": "arithmetic.h",
+      "filePath": "include/backend/cpu/arithmetic.h",
+      "summary": "CPU 后端算术运算算子声明头文件，定义了 Add、Sub、Mul、Div 四种逐元素运算的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "arithmetic",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/attention.h",
+      "type": "file",
+      "name": "attention.h",
+      "filePath": "include/backend/cpu/attention.h",
+      "summary": "CPU 后端注意力算子声明头文件，定义了 Softmax、DiagMaskInf、Sdpa、Attention、FlashAttention 五种注意力相关算子的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "attention",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/embedding.h",
+      "type": "file",
+      "name": "embedding.h",
+      "filePath": "include/backend/cpu/embedding.h",
+      "summary": "CPU 后端 Embedding 算子声明头文件，定义了嵌入查找操作的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "embedding",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/linear.h",
+      "type": "file",
+      "name": "linear.h",
+      "filePath": "include/backend/cpu/linear.h",
+      "summary": "CPU 后端线性层算子声明头文件，定义了 Linear、Matmul、Transpose 三种线性代数算子的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "linear",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/memcpy.h",
+      "type": "file",
+      "name": "memcpy.h",
+      "filePath": "include/backend/cpu/memcpy.h",
+      "summary": "CPU 后端内存拷贝算子声明头文件，定义了 Memcpy 操作的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "memory",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/normalization.h",
+      "type": "file",
+      "name": "normalization.h",
+      "filePath": "include/backend/cpu/normalization.h",
+      "summary": "CPU 后端归一化算子声明头文件，定义了 RmsNorm 和 LayerNorm 两种归一化算子的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "normalization",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/rope.h",
+      "type": "file",
+      "name": "rope.h",
+      "filePath": "include/backend/cpu/rope.h",
+      "summary": "CPU 后端旋转位置编码算子声明头文件，定义了 ApplyRope 和 RopeCache 两种 RoPE 相关算子的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "rope",
+        "operator",
+        "positional-encoding"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cpu/shape.h",
+      "type": "file",
+      "name": "shape.h",
+      "filePath": "include/backend/cpu/shape.h",
+      "summary": "CPU 后端形状操作算子声明头文件，定义了 Reshape、Permute、Concat、Repeat 四种张量形状变换算子的模板特化实现。",
+      "tags": [
+        "backend",
+        "cpu",
+        "shape",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/activation.h",
+      "type": "file",
+      "name": "activation.h",
+      "filePath": "include/backend/cuda/activation.h",
+      "summary": "CUDA 后端激活函数算子声明头文件，定义了 SiLU、GELU、ReLU 三种激活函数的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "activation",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/arithmetic.h",
+      "type": "file",
+      "name": "arithmetic.h",
+      "filePath": "include/backend/cuda/arithmetic.h",
+      "summary": "CUDA 后端算术运算算子声明头文件，定义了 Add、Sub、Mul、Div 四种逐元素运算的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "arithmetic",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/attention.h",
+      "type": "file",
+      "name": "attention.h",
+      "filePath": "include/backend/cuda/attention.h",
+      "summary": "CUDA 后端注意力算子声明头文件，定义了 Softmax、DiagMaskInf、Sdpa、Attention、FlashAttention 五种注意力相关算子的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "attention",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/linear.h",
+      "type": "file",
+      "name": "linear.h",
+      "filePath": "include/backend/cuda/linear.h",
+      "summary": "CUDA 后端线性层算子声明头文件，定义了 Linear、Matmul、Transpose 三种线性代数算子的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "linear",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/memcpy.h",
+      "type": "file",
+      "name": "memcpy.h",
+      "filePath": "include/backend/cuda/memcpy.h",
+      "summary": "CUDA 后端内存拷贝算子声明头文件，定义了 Memcpy 操作的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "memory",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/normalization.h",
+      "type": "file",
+      "name": "normalization.h",
+      "filePath": "include/backend/cuda/normalization.h",
+      "summary": "CUDA 后端归一化算子声明头文件，定义了 RmsNorm 和 LayerNorm 两种归一化算子的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "normalization",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/rope.h",
+      "type": "file",
+      "name": "rope.h",
+      "filePath": "include/backend/cuda/rope.h",
+      "summary": "CUDA 后端旋转位置编码算子声明头文件，定义了 ApplyRope 和 RopeCache 两种 RoPE 相关算子的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "rope",
+        "operator",
+        "positional-encoding"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/cuda/shape.h",
+      "type": "file",
+      "name": "shape.h",
+      "filePath": "include/backend/cuda/shape.h",
+      "summary": "CUDA 后端形状操作算子声明头文件，定义了 Reshape、Permute、Concat、Repeat 四种张量形状变换算子的 CUDA 模板特化实现。",
+      "tags": [
+        "backend",
+        "cuda",
+        "shape",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/activation.h",
+      "type": "file",
+      "name": "activation.h",
+      "filePath": "include/backend/vulkan/activation.h",
+      "summary": "Vulkan 后端激活函数算子声明头文件，定义了 SiLU、GELU、ReLU 三种激活函数的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "activation",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/arithmetic.h",
+      "type": "file",
+      "name": "arithmetic.h",
+      "filePath": "include/backend/vulkan/arithmetic.h",
+      "summary": "Vulkan 后端算术运算算子声明头文件，定义了 Add、Sub、Mul、Div 四种逐元素运算的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "arithmetic",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/attention.h",
+      "type": "file",
+      "name": "attention.h",
+      "filePath": "include/backend/vulkan/attention.h",
+      "summary": "Vulkan 后端注意力算子声明头文件，定义了 Softmax、DiagMaskInf、Sdpa、Attention、FlashAttention 五种注意力相关算子的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "attention",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/linear.h",
+      "type": "file",
+      "name": "linear.h",
+      "filePath": "include/backend/vulkan/linear.h",
+      "summary": "Vulkan 后端线性层算子声明头文件，定义了 Linear、Matmul、Transpose 三种线性代数算子的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "linear",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/memcpy.h",
+      "type": "file",
+      "name": "memcpy.h",
+      "filePath": "include/backend/vulkan/memcpy.h",
+      "summary": "Vulkan 后端内存拷贝算子声明头文件，定义了 Memcpy 操作的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "memory",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/normalization.h",
+      "type": "file",
+      "name": "normalization.h",
+      "filePath": "include/backend/vulkan/normalization.h",
+      "summary": "Vulkan 后端归一化算子声明头文件，定义了 RmsNorm 和 LayerNorm 两种归一化算子的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "normalization",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/rope.h",
+      "type": "file",
+      "name": "rope.h",
+      "filePath": "include/backend/vulkan/rope.h",
+      "summary": "Vulkan 后端旋转位置编码算子声明头文件，定义了 ApplyRope 和 RopeCache 两种 RoPE 相关算子的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "rope",
+        "operator",
+        "positional-encoding"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/shape.h",
+      "type": "file",
+      "name": "shape.h",
+      "filePath": "include/backend/vulkan/shape.h",
+      "summary": "Vulkan 后端形状操作算子声明头文件，定义了 Reshape、Permute、Concat、Repeat 四种张量形状变换算子的 Vulkan 模板特化实现。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "shape",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/backend/vulkan/spv/add_f32.h",
+      "type": "file",
+      "name": "add_f32.h",
+      "filePath": "include/backend/vulkan/spv/add_f32.h",
+      "summary": "内嵌 SPIR-V 二进制着色器数据，定义 Vulkan compute shader 的 add_f32 算子字节码，用于 GPU 向量加法运算。",
+      "tags": [
+        "vulkan",
+        "shader",
+        "spir-v",
+        "gpu-compute"
+      ],
+      "complexity": "simple",
+      "languageNotes": "使用 inline constexpr 数组存储预编译的 SPIR-V 二进制，避免运行时文件加载。"
+    },
+    {
+      "id": "file:include/backend/vulkan/vulkan_context.h",
+      "type": "file",
+      "name": "vulkan_context.h",
+      "filePath": "include/backend/vulkan/vulkan_context.h",
+      "summary": "Vulkan 后端上下文管理器，采用单例模式封装 Vulkan 实例、设备、队列、命令池、描述符池的生命周期管理，支持 compute pipeline 懒加载和 staging buffer 管理。",
+      "tags": [
+        "vulkan",
+        "singleton",
+        "gpu-context",
+        "infrastructure"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 Vulkan-Hpp C++ 绑定，通过 static 局部变量实现线程安全的 Meyer's singleton。"
+    },
+    {
+      "id": "class:include/backend/vulkan/vulkan_context.h:VulkanContext",
+      "type": "class",
+      "name": "VulkanContext",
+      "filePath": "include/backend/vulkan/vulkan_context.h",
+      "lineRange": [
+        15,
+        316
+      ],
+      "summary": "Vulkan 设备上下文单例，管理物理/逻辑设备选择、compute queue 创建、pipeline 懒加载、descriptor set 分配、命令缓冲录制及 staging buffer 的创建与销毁。",
+      "tags": [
+        "singleton",
+        "vulkan",
+        "resource-management",
+        "gpu"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:include/core/executor.h",
+      "type": "file",
+      "name": "executor.h",
+      "filePath": "include/core/executor.h",
+      "summary": "计算图执行器声明，负责在调度器分配的设备上按拓扑序执行 DAG 节点，支持 prefill/decode 两阶段推理、分页注意力集成和多种采样策略。",
+      "tags": [
+        "executor",
+        "inference",
+        "core",
+        "dag-runtime"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/executor.h:Executor",
+      "type": "class",
+      "name": "Executor",
+      "filePath": "include/core/executor.h",
+      "lineRange": [
+        10,
+        80
+      ],
+      "summary": "计算图执行器核心类，提供 generate() 主入口驱动 prefill 和 decode 循环，管理序列位置、设备映射、kernel 调度和 activation 内存池。",
+      "tags": [
+        "executor",
+        "inference-engine",
+        "core",
+        "sampling"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:include/core/gguf_parser.h",
+      "type": "file",
+      "name": "gguf_parser.h",
+      "filePath": "include/core/gguf_parser.h",
+      "summary": "GGUF 文件格式解析器声明，定义 TensorInfo、GGUFInfo 和 GGUFParser 三个核心类，用于反序列化模型权重元数据和张量信息。",
+      "tags": [
+        "gguf",
+        "parser",
+        "serialization",
+        "model-loading"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/gguf_parser.h:TensorInfo",
+      "type": "class",
+      "name": "TensorInfo",
+      "filePath": "include/core/gguf_parser.h",
+      "lineRange": [
+        11,
+        25
+      ],
+      "summary": "GGUF 张量元数据结构体，记录张量名称、维度、数据类型、文件偏移量和是否需要转置。",
+      "tags": [
+        "data-model",
+        "gguf",
+        "tensor-metadata"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/core/gguf_parser.h:GGUFInfo",
+      "type": "class",
+      "name": "GGUFInfo",
+      "filePath": "include/core/gguf_parser.h",
+      "lineRange": [
+        27,
+        39
+      ],
+      "summary": "GGUF 文件全局信息容器，存储版本号、张量数量、元数据键值对和所有张量信息列表，提供模型名称和架构查询接口。",
+      "tags": [
+        "data-model",
+        "gguf",
+        "model-metadata"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/core/gguf_parser.h:GGUFParser",
+      "type": "class",
+      "name": "GGUFParser",
+      "filePath": "include/core/gguf_parser.h",
+      "lineRange": [
+        41,
+        69
+      ],
+      "summary": "GGUF 二进制文件解析器，实现小端序整数/浮点读取、元数据递归解析、张量信息提取和原始张量数据读取。",
+      "tags": [
+        "parser",
+        "binary-format",
+        "gguf",
+        "deserialization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/core/graph.h",
+      "type": "file",
+      "name": "graph.h",
+      "filePath": "include/core/graph.h",
+      "summary": "DAG 计算图声明，定义 ComputeGraph 类管理张量节点、拓扑排序执行序列、层级分组和 DOT 格式可视化导出。",
+      "tags": [
+        "dag",
+        "compute-graph",
+        "ir",
+        "core"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/core/graph.h:ComputeGraph",
+      "type": "class",
+      "name": "ComputeGraph",
+      "filePath": "include/core/graph.h",
+      "lineRange": [
+        6,
+        47
+      ],
+      "summary": "DAG 计算图核心类，维护所有张量节点和执行顺序，支持从输出张量反向 BFS 收集依赖、拓扑排序重建、层级分组和 DOT 图导出。",
+      "tags": [
+        "dag",
+        "graph",
+        "topological-sort",
+        "ir"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/core/kernels.h",
+      "type": "file",
+      "name": "kernels.h",
+      "filePath": "include/core/kernels.h",
+      "summary": "算子调度声明头文件，定义 kernel 命名空间下所有计算算子（add/sub/mul/div/rms_norm/linear/softmax/attention 等）的统一 dispatch 接口。",
+      "tags": [
+        "kernel-dispatch",
+        "api-declaration",
+        "operators",
+        "core"
+      ],
+      "complexity": "simple",
+      "languageNotes": "使用 OPS_API 宏控制符号导出，支持 Windows DLL 和 Linux/macOS 共享库。"
+    },
+    {
+      "id": "file:include/core/manager.h",
+      "type": "file",
+      "name": "manager.h",
+      "filePath": "include/core/manager.h",
+      "summary": "内存管理器声明，定义 MemoryManager 类统一管理多设备权重池、激活池和 KV cache 池，协调模型权重加载和分页注意力管理器。",
+      "tags": [
+        "memory-management",
+        "multi-device",
+        "core",
+        "resource-allocator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/manager.h:MemoryManager",
+      "type": "class",
+      "name": "MemoryManager",
+      "filePath": "include/core/manager.h",
+      "lineRange": [
+        13,
+        46
+      ],
+      "summary": "多设备内存管理器，维护每个设备的 DevicePools（权重/激活/KV cache 三池），提供权重加载、激活重置和分页注意力管理器访问接口。",
+      "tags": [
+        "memory-manager",
+        "multi-device",
+        "core",
+        "allocator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/core/page_attention.h",
+      "type": "file",
+      "name": "page_attention.h",
+      "filePath": "include/core/page_attention.h",
+      "summary": "分页注意力机制声明，定义 BlockPool 块分配器、PageEntry 条目和 PagedAttentionManager 管理器，实现分块 KV cache 的分配与管理。",
+      "tags": [
+        "paged-attention",
+        "kv-cache",
+        "memory-management",
+        "core"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/page_attention.h:BlockPool",
+      "type": "class",
+      "name": "BlockPool",
+      "filePath": "include/core/page_attention.h",
+      "lineRange": [
+        12,
+        37
+      ],
+      "summary": "KV cache 块池分配器，管理固定大小内存块的分配与释放，使用空闲链表实现 O(1) 分配/回收。",
+      "tags": [
+        "memory-pool",
+        "block-allocator",
+        "kv-cache"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/page_attention.h:PagedAttentionManager",
+      "type": "class",
+      "name": "PagedAttentionManager",
+      "filePath": "include/core/page_attention.h",
+      "lineRange": [
+        44,
+        80
+      ],
+      "summary": "分页注意力管理器，为每个 transformer 层维护独立的 KV block 映射，支持按层预留、初始化、从张量或位置追加 KV 数据。",
+      "tags": [
+        "paged-attention",
+        "kv-cache",
+        "layer-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/core/pools.h",
+      "type": "file",
+      "name": "pools.h",
+      "filePath": "include/core/pools.h",
+      "summary": "内存池声明，定义 MemoryPool 单池实现（带容量追踪和利用率统计）和 DevicePools 设备池组（权重/激活/KV cache 三池分离）。",
+      "tags": [
+        "memory-pool",
+        "resource-management",
+        "core",
+        "allocator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/pools.h:MemoryPool",
+      "type": "class",
+      "name": "MemoryPool",
+      "filePath": "include/core/pools.h",
+      "lineRange": [
+        9,
+        46
+      ],
+      "summary": "单设备内存池实现，提供线性分配、游标重置、峰值追踪和利用率统计，支持层间 activation 复用。",
+      "tags": [
+        "memory-pool",
+        "linear-allocator",
+        "core"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/pools.h:DevicePools",
+      "type": "class",
+      "name": "DevicePools",
+      "filePath": "include/core/pools.h",
+      "lineRange": [
+        48,
+        70
+      ],
+      "summary": "设备级内存池组，聚合 weight、activation 和 kv_cache 三个 MemoryPool，提供 activation 池重置和使用量打印。",
+      "tags": [
+        "memory-pool",
+        "device-pools",
+        "core"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/core/resource.h",
+      "type": "file",
+      "name": "resource.h",
+      "filePath": "include/core/resource.h",
+      "summary": "内存资源抽象层声明，定义 MemoryBlock 结构体、IMemoryResource 接口和 CpuMemoryResource CPU 实现，为多后端内存管理提供统一抽象。",
+      "tags": [
+        "memory-resource",
+        "abstraction",
+        "core",
+        "backend-agnostic"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/resource.h:IMemoryResource",
+      "type": "class",
+      "name": "IMemoryResource",
+      "filePath": "include/core/resource.h",
+      "lineRange": [
+        14,
+        24
+      ],
+      "summary": "内存资源抽象接口，定义 allocate/deallocate 纯虚函数和设备标识查询方法，作为 CPU/CUDA/Vulkan 后端内存管理的统一基类。",
+      "tags": [
+        "interface",
+        "memory-resource",
+        "abstraction"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/core/resource.h:CpuMemoryResource",
+      "type": "class",
+      "name": "CpuMemoryResource",
+      "filePath": "include/core/resource.h",
+      "lineRange": [
+        26,
+        36
+      ],
+      "summary": "CPU 内存资源实现，使用 malloc/free 管理主机内存分配，支持可选的内存锁定（mlock）以防止页面换出。",
+      "tags": [
+        "cpu-backend",
+        "memory-resource",
+        "implementation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/core/scheduler.h",
+      "type": "file",
+      "name": "scheduler.h",
+      "filePath": "include/core/scheduler.h",
+      "summary": "计算图调度器声明，定义 GraphScheduler 类负责将 DAG 节点按层分配到多设备、统一权重设备、插入跨设备 copy 边并创建内存池。",
+      "tags": [
+        "scheduler",
+        "multi-device",
+        "core",
+        "graph-optimization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/scheduler.h:GraphScheduler",
+      "type": "class",
+      "name": "GraphScheduler",
+      "filePath": "include/core/scheduler.h",
+      "lineRange": [
+        12,
+        96
+      ],
+      "summary": "计算图调度器核心类，执行层级设备分配、全局节点统一、权重设备一致性保障、copy 边插入、内存池创建和 KV cache 初始化。",
+      "tags": [
+        "scheduler",
+        "multi-device",
+        "layer-assignment",
+        "core"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:include/core/tensor.hpp",
+      "type": "file",
+      "name": "tensor.hpp",
+      "filePath": "include/core/tensor.hpp",
+      "summary": "Tensor 数据结构声明，定义计算图中的张量节点，包含数据指针、维度、数据类型、操作类型、设备信息和层标识等核心属性。",
+      "tags": [
+        "tensor",
+        "data-structure",
+        "core",
+        "type-definition"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/core/tensor.hpp:Tensor",
+      "type": "class",
+      "name": "Tensor",
+      "filePath": "include/core/tensor.hpp",
+      "lineRange": [
+        12,
+        55
+      ],
+      "summary": "计算图张量节点结构体，包含原始数据指针、设备句柄、维度/步长、操作类型、数据类型和层 ID，提供元素计数和字节大小计算方法。",
+      "tags": [
+        "tensor",
+        "data-structure",
+        "core",
+        "ir-node"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/core/thread_pool.h",
+      "type": "file",
+      "name": "thread_pool.h",
+      "filePath": "include/core/thread_pool.h",
+      "summary": "线程池实现声明，定义 ThreadPool 类支持任务提交和同步等待，使用条件变量实现工作线程的高效唤醒与任务窃取。",
+      "tags": [
+        "thread-pool",
+        "concurrency",
+        "core",
+        "parallelism"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/thread_pool.h:ThreadPool",
+      "type": "class",
+      "name": "ThreadPool",
+      "filePath": "include/core/thread_pool.h",
+      "lineRange": [
+        20,
+        102
+      ],
+      "summary": "线程池核心类，默认使用硬件并发数创建工作线程，支持 submit() 异步任务提交和 wait() 同步屏障等待，析构时优雅关闭所有线程。",
+      "tags": [
+        "thread-pool",
+        "concurrency",
+        "task-scheduling"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/core/tokenizer.h",
+      "type": "file",
+      "name": "tokenizer.h",
+      "filePath": "include/core/tokenizer.h",
+      "summary": "分词器声明，定义 Tokenizer 类支持从 GGUF 文件加载词表、BPE 编码/解码、特殊 token（BOS/EOS/PAD）管理。",
+      "tags": [
+        "tokenizer",
+        "bpe",
+        "nlp",
+        "core"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/core/tokenizer.h:Tokenizer",
+      "type": "class",
+      "name": "Tokenizer",
+      "filePath": "include/core/tokenizer.h",
+      "lineRange": [
+        10,
+        45
+      ],
+      "summary": "BPE 分词器实现，从 GGUF 文件解析词表和 BPE rank，提供 encode/decode 双向转换、特殊 token ID 查询和预分词处理。",
+      "tags": [
+        "tokenizer",
+        "bpe",
+        "nlp",
+        "gguf-loader"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/model/model.h",
+      "type": "file",
+      "name": "model.h",
+      "filePath": "include/model/model.h",
+      "summary": "模型抽象层声明，定义 ModelBase 抽象基类和 ModelFactory 工厂类，支持按架构名称或 GGUF 文件自动创建模型实例。",
+      "tags": [
+        "model-abstraction",
+        "factory-pattern",
+        "model-loading",
+        "core"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/model/model.h:ModelBase",
+      "type": "class",
+      "name": "ModelBase",
+      "filePath": "include/model/model.h",
+      "lineRange": [
+        15,
+        26
+      ],
+      "summary": "模型抽象基类，定义 vocab_size()、max_seq_len()、build_graph() 等纯虚接口，作为所有具体模型实现的统一基类。",
+      "tags": [
+        "abstract-class",
+        "model-interface",
+        "polymorphism"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:include/model/model.h:ModelFactory",
+      "type": "class",
+      "name": "ModelFactory",
+      "filePath": "include/model/model.h",
+      "lineRange": [
+        30,
+        77
+      ],
+      "summary": "模型工厂类，维护静态注册表，支持按架构名或 GGUF 文件自动实例化对应模型，使用模板方法 create_model<T>() 注册新模型。",
+      "tags": [
+        "factory-pattern",
+        "registry",
+        "model-creation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/model/op_factory.hpp",
+      "type": "file",
+      "name": "op_factory.hpp",
+      "filePath": "include/model/op_factory.hpp",
+      "summary": "算子工厂核心实现，提供 RoPE 缓存预计算、RoPE 应用、步长计算和线性层输出推断等静态方法，是模型图构建 DSL 的算子基础。",
+      "tags": [
+        "op-factory",
+        "rope",
+        "graph-dsl",
+        "model-building"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:include/model/op_factory.hpp:OpFactory",
+      "type": "class",
+      "name": "OpFactory",
+      "filePath": "include/model/op_factory.hpp",
+      "lineRange": [
+        16,
+        663
+      ],
+      "summary": "算子工厂静态工具类，封装 RoPE 缓存生成、RoPE 应用、张量步长推断和线性层输出维度计算，为模型 build_graph() 提供底层算子构建支持。",
+      "tags": [
+        "static-factory",
+        "rope",
+        "tensor-ops",
+        "model-dsl"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:include/model/op_factory.hpp:rope_cache",
+      "type": "function",
+      "name": "rope_cache",
+      "filePath": "include/model/op_factory.hpp",
+      "lineRange": [
+        140,
+        177
+      ],
+      "summary": "预计算 RoPE（旋转位置编码）的 cos/sin 缓存表，根据最大序列长度、头维度和 theta 参数生成用于推理时的位置编码张量。",
+      "tags": [
+        "rope",
+        "positional-encoding",
+        "precompute",
+        "optimization"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:include/model/op_factory.hpp:apply_rope",
+      "type": "function",
+      "name": "apply_rope",
+      "filePath": "include/model/op_factory.hpp",
+      "lineRange": [
+        481,
+        538
+      ],
+      "summary": "将预计算的 RoPE 旋转位置编码应用到 Q/K 张量上，执行分块旋转操作并生成新的 Q/K 输出张量节点。",
+      "tags": [
+        "rope",
+        "attention",
+        "tensor-transform",
+        "inference"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:include/model/op_factory.hpp:infer_linear_output",
+      "type": "function",
+      "name": "infer_linear_output",
+      "filePath": "include/model/op_factory.hpp",
+      "lineRange": [
+        629,
+        662
+      ],
+      "summary": "根据输入维度和权重维度推断线性层输出张量的形状，处理转置标志并验证维度兼容性。",
+      "tags": [
+        "shape-inference",
+        "linear-layer",
+        "validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/model/Qwen3.hpp",
+      "type": "file",
+      "name": "Qwen3.hpp",
+      "filePath": "include/model/Qwen3.hpp",
+      "summary": "Qwen3 模型实现，定义 Qwen3Config 配置结构体和 Qwen3Model 模型类，支持 0.6B/1.7B/4B 参数量的 GQA 架构。",
+      "tags": [
+        "qwen3",
+        "model-implementation",
+        "gqa",
+        "llm"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/model/Qwen3.hpp:Qwen3Model",
+      "type": "class",
+      "name": "Qwen3Model",
+      "filePath": "include/model/Qwen3.hpp",
+      "lineRange": [
+        21,
+        62
+      ],
+      "summary": "Qwen3 模型具体实现，继承 ModelBase，实现 parse_config() 从 GGUF 提取超参、build_graph() 构建 DAG 计算图，支持 GQA 注意力机制。",
+      "tags": [
+        "qwen3",
+        "model",
+        "gqa",
+        "graph-builder"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/model/Qwen35.hpp",
+      "type": "file",
+      "name": "Qwen35.hpp",
+      "filePath": "include/model/Qwen35.hpp",
+      "summary": "Qwen3.5 模型实现，定义 Qwen35Config 配置结构体和 Qwen35Model 模型类，支持混合注意力（full attention + linear attention）架构。",
+      "tags": [
+        "qwen35",
+        "model-implementation",
+        "hybrid-attention",
+        "llm"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:include/model/Qwen35.hpp:Qwen35Model",
+      "type": "class",
+      "name": "Qwen35Model",
+      "filePath": "include/model/Qwen35.hpp",
+      "lineRange": [
+        31,
+        61
+      ],
+      "summary": "Qwen3.5 模型具体实现，继承 ModelBase，支持 SSM 和混合注意力层构建，包含 full_attention_layer 和 linear_attention_layer 两种层类型。",
+      "tags": [
+        "qwen35",
+        "model",
+        "hybrid-attention",
+        "ssm"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/utils/bfloat16.hpp",
+      "type": "file",
+      "name": "bfloat16.hpp",
+      "filePath": "include/utils/bfloat16.hpp",
+      "summary": "BF16 浮点类型软件实现，定义 bfloat16_t 结构体及其完整的算术运算符、比较运算符和数值特性（NaN/Inf/有限值），兼容 std::numeric_limits。",
+      "tags": [
+        "bfloat16",
+        "half-precision",
+        "numeric-type",
+        "utility"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 std::bit_cast 实现 float 与 uint32 之间的零开销类型转换，依赖 round-to-nearest-even 舍入模式。"
+    },
+    {
+      "id": "class:include/utils/bfloat16.hpp:bfloat16_t",
+      "type": "class",
+      "name": "bfloat16_t",
+      "filePath": "include/utils/bfloat16.hpp",
+      "lineRange": [
+        9,
+        124
+      ],
+      "summary": "BF16 浮点类型实现，存储 16 位（8 位指数 + 7 位尾数），支持从 float/double/int 隐式构造、四则运算和完整的数值特性查询。",
+      "tags": [
+        "bfloat16",
+        "numeric-type",
+        "ieee754",
+        "half-precision"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/utils/dtype_traits.hpp",
+      "type": "file",
+      "name": "dtype_traits.hpp",
+      "filePath": "include/utils/dtype_traits.hpp",
+      "summary": "数据类型特性分发工具，提供编译期和运行期的 dtype 到 F32 转换、设备后端分发（CPU/CUDA/Vulkan）等模板工具函数。",
+      "tags": [
+        "type-traits",
+        "dispatch",
+        "template-meta",
+        "utility"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 constexpr if 和模板特化实现编译期多态，to_f32_rt/from_f32_rt 提供运行期动态分发。"
+    },
+    {
+      "id": "function:include/utils/dtype_traits.hpp:to_f32_rt",
+      "type": "function",
+      "name": "to_f32_rt",
+      "filePath": "include/utils/dtype_traits.hpp",
+      "lineRange": [
+        52,
+        59
+      ],
+      "summary": "运行时数据类型到 F32 转换函数，根据 DataType 枚举将 F16/BF16/F32 指针值转换为 float 返回。",
+      "tags": [
+        "type-conversion",
+        "runtime-dispatch",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:include/utils/dtype_traits.hpp:from_f32_rt",
+      "type": "function",
+      "name": "from_f32_rt",
+      "filePath": "include/utils/dtype_traits.hpp",
+      "lineRange": [
+        62,
+        69
+      ],
+      "summary": "运行时 F32 到指定数据类型转换函数，将 float 值写入 F16/BF16/F32 目标指针。",
+      "tags": [
+        "type-conversion",
+        "runtime-dispatch",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:include/utils/float16.hpp",
+      "type": "file",
+      "name": "float16.hpp",
+      "filePath": "include/utils/float16.hpp",
+      "summary": "FP16 浮点类型软件实现，定义 float16_t 结构体及其完整的算术运算符、比较运算符和数值特性，包含完整的 float-to-half 和 half-to-float 转换逻辑。",
+      "tags": [
+        "float16",
+        "half-precision",
+        "numeric-type",
+        "utility"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "手动实现 IEEE 754 半精度格式转换，处理了归一化数、非归一化数、无穷大和 NaN 的完整边界情况。"
+    },
+    {
+      "id": "class:include/utils/float16.hpp:float16_t",
+      "type": "class",
+      "name": "float16_t",
+      "filePath": "include/utils/float16.hpp",
+      "lineRange": [
+        8,
+        131
+      ],
+      "summary": "FP16 浮点类型实现，存储 16 位（5 位指数 + 10 位尾数），支持从 float/double/int 隐式构造、四则运算和完整的数值特性查询。",
+      "tags": [
+        "float16",
+        "numeric-type",
+        "ieee754",
+        "half-precision"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:include/utils/tools.hpp",
+      "type": "file",
+      "name": "tools.hpp",
+      "filePath": "include/utils/tools.hpp",
+      "summary": "张量调试工具集，提供 Softmax 计算、tensor_dims_to_string 维度格式化和 println 张量打印函数，支持所有数据类型（含量化格式）和多设备（CPU/CUDA）输出。",
+      "tags": [
+        "debug-tools",
+        "tensor-print",
+        "softmax",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:include/utils/tools.hpp:tensor_dims_to_string",
+      "type": "function",
+      "name": "tensor_dims_to_string",
+      "filePath": "include/utils/tools.hpp",
+      "lineRange": [
+        88,
+        100
+      ],
+      "summary": "将张量维度向量格式化为可读字符串，输出形如 [dim0, dim1, dim2] 的表示。",
+      "tags": [
+        "string-formatting",
+        "tensor",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:include/utils/tools.hpp:println",
+      "type": "function",
+      "name": "println",
+      "filePath": "include/utils/tools.hpp",
+      "lineRange": [
+        101,
+        256
+      ],
+      "summary": "张量调试打印函数，根据设备类型（CPU/CUDA）和数据类型（F32/F16/BF16/量化格式）格式化输出张量内容、维度、类型和设备信息。",
+      "tags": [
+        "debug",
+        "tensor-print",
+        "multi-device",
+        "utility"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:include/utils/utils.hpp",
+      "type": "file",
+      "name": "utils.hpp",
+      "filePath": "include/utils/utils.hpp",
+      "summary": "核心工具库，定义 DataType/OperationType/Device/ModelArch 等枚举类型及其字符串转换函数、data_type_size() 字节大小查询，是整个框架的类型基础设施。",
+      "tags": [
+        "enum-definitions",
+        "type-system",
+        "utility",
+        "foundation"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 C++23 的 operator<=> 实现枚举的三路比较，支持 GGML 兼容的数据类型编码。"
+    },
+    {
+      "id": "function:include/utils/utils.hpp:data_type_size",
+      "type": "function",
+      "name": "data_type_size",
+      "filePath": "include/utils/utils.hpp",
+      "lineRange": [
+        159,
+        196
+      ],
+      "summary": "根据 DataType 枚举返回对应数据类型的字节大小，覆盖 F32/F16/BF16 及所有 GGML 量化格式（Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1 等）。",
+      "tags": [
+        "type-info",
+        "data-type",
+        "utility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "项目文档，介绍 Genllm 框架的特性（GGUF 解析、DAG 计算图、分页注意力、双层内存池）、支持的 Qwen3 模型规格、CPU/CUDA 后端实现状态、构建方法和项目结构。",
+      "tags": [
+        "documentation",
+        "entry-point",
+        "overview"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:shader/add_f32.comp",
+      "type": "file",
+      "name": "add_f32.comp",
+      "filePath": "shader/add_f32.comp",
+      "summary": "Vulkan compute shader，实现两个 float32 buffer 的逐元素加法，工作组大小为 256，通过 push constant 传入总元素数。",
+      "tags": [
+        "shader",
+        "compute",
+        "vulkan",
+        "arithmetic"
+      ],
+      "complexity": "simple",
+      "languageNotes": "GLSL 460 compute shader，使用 SSBO 进行 GPU buffer 读写，push constant 传递标量参数。"
+    },
+    {
+      "id": "file:shell/gguf.py",
+      "type": "file",
+      "name": "gguf.py",
+      "filePath": "shell/gguf.py",
+      "summary": "GGUF 格式权重加载器，提供 PyTorch 风格的张量加载接口，支持 BF16/FP32 数据类型的读取、转置和验证，用于 C++/Python 交叉验证。",
+      "tags": [
+        "data-loader",
+        "gguf",
+        "pytorch",
+        "utility",
+        "tested"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:shell/gguf.py:GGUFTorchLoader",
+      "type": "class",
+      "name": "GGUFTorchLoader",
+      "filePath": "shell/gguf.py",
+      "lineRange": [
+        6,
+        90
+      ],
+      "summary": "GGUF 文件的 PyTorch 张量加载器，构建张量索引后按名称加载单个张量，支持 BF16 到 FP32 的自动转换和矩阵转置。",
+      "tags": [
+        "data-loader",
+        "gguf",
+        "tensor"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:shell/model.py",
+      "type": "file",
+      "name": "model.py",
+      "filePath": "shell/model.py",
+      "summary": "Qwen3 模型的纯 Python/PyTorch 参考实现，包含完整的 Transformer 架构：配置解析、注意力机制、FFN、Transformer Block 和顶层模型，用于与 C++ 推理引擎进行数值对比验证。",
+      "tags": [
+        "model",
+        "pytorch",
+        "reference-implementation",
+        "qwen3"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:shell/model.py:Qwen3Config",
+      "type": "class",
+      "name": "Qwen3Config",
+      "filePath": "shell/model.py",
+      "lineRange": [
+        19,
+        39
+      ],
+      "summary": "从 YAML 配置文件加载 Qwen3 模型参数（hidden_size、num_heads、head_dim 等），并解析 GGUF 权重张量列表。",
+      "tags": [
+        "config",
+        "model",
+        "data-class"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:shell/model.py:Qwen3Attention",
+      "type": "class",
+      "name": "Qwen3Attention",
+      "filePath": "shell/model.py",
+      "lineRange": [
+        42,
+        90
+      ],
+      "summary": "Qwen3 多头注意力层实现，包含 Q/K/V 投影、GQA 的 KV head 重复、RoPE 位置编码和 scaled dot-product attention。",
+      "tags": [
+        "attention",
+        "transformer",
+        "multi-head"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:shell/model.py:Qwen3FFN",
+      "type": "class",
+      "name": "Qwen3FFN",
+      "filePath": "shell/model.py",
+      "lineRange": [
+        93,
+        117
+      ],
+      "summary": "Qwen3 前馈网络层，采用 SwiGLU 激活函数的 gate/up/down 三投影结构。",
+      "tags": [
+        "feed-forward",
+        "swiglu",
+        "transformer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:shell/model.py:Qwen3Block",
+      "type": "class",
+      "name": "Qwen3Block",
+      "filePath": "shell/model.py",
+      "lineRange": [
+        120,
+        140
+      ],
+      "summary": "单个 Transformer Block，串联注意力子层和 FFN 子层，各带 RMSNorm 和残差连接。",
+      "tags": [
+        "transformer-block",
+        "residual-connection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:shell/model.py:Qwen3Model",
+      "type": "class",
+      "name": "Qwen3Model",
+      "filePath": "shell/model.py",
+      "lineRange": [
+        143,
+        171
+      ],
+      "summary": "Qwen3 顶层模型，包含 embedding 层、N 个 Transformer Block、最终 RMSNorm 和 LM head，管理 RoPE 预计算和权重加载。",
+      "tags": [
+        "model",
+        "language-model",
+        "inference"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:shell/ops.py",
+      "type": "file",
+      "name": "ops.py",
+      "filePath": "shell/ops.py",
+      "summary": "PyTorch 实现的算子库，提供 LLM 推理所需的基础运算：embedding 查找、RMSNorm、线性层、SiLU 激活、RoPE 位置编码和 scaled dot-product attention。",
+      "tags": [
+        "operators",
+        "pytorch",
+        "utility",
+        "reference-implementation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:shell/ops.py:embedding_lookup",
+      "type": "function",
+      "name": "embedding_lookup",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        8,
+        17
+      ],
+      "summary": "词嵌入查找，等价于 nn.Embedding，支持 list 或 tensor 输入。",
+      "tags": [
+        "embedding",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:shell/ops.py:rms_norm",
+      "type": "function",
+      "name": "rms_norm",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        19,
+        21
+      ],
+      "summary": "RMSNorm 归一化运算，先计算 RMS 再乘以可学习权重。",
+      "tags": [
+        "normalization",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:shell/ops.py:linear",
+      "type": "function",
+      "name": "linear",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        23,
+        24
+      ],
+      "summary": "线性变换层，封装 F.linear。",
+      "tags": [
+        "linear",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:shell/ops.py:silu",
+      "type": "function",
+      "name": "silu",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        26,
+        27
+      ],
+      "summary": "SiLU 激活函数（x * sigmoid(x)）。",
+      "tags": [
+        "activation",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:shell/ops.py:compute_rope_cos_sin",
+      "type": "function",
+      "name": "compute_rope_cos_sin",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        30,
+        51
+      ],
+      "summary": "预计算 RoPE 位置编码的 cos/sin 矩阵，使用 theta 基频和频率分桶策略。",
+      "tags": [
+        "rope",
+        "positional-encoding",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:shell/ops.py:apply_rope",
+      "type": "function",
+      "name": "apply_rope",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        54,
+        102
+      ],
+      "summary": "对 Q/K 张量应用旋转位置编码，支持 2D/3D 输入和动态 position_ids。",
+      "tags": [
+        "rope",
+        "positional-encoding",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:shell/ops.py:scaled_dot_product_attention",
+      "type": "function",
+      "name": "scaled_dot_product_attention",
+      "filePath": "shell/ops.py",
+      "lineRange": [
+        105,
+        141
+      ],
+      "summary": "Scaled dot-product attention 实现，支持 GQA 的 KV head 重复和因果掩码。",
+      "tags": [
+        "attention",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:shell/test_gguf.py",
+      "type": "file",
+      "name": "test_gguf.py",
+      "filePath": "shell/test_gguf.py",
+      "summary": "GGUF 格式解析测试工具，直接读取 GGUF 二进制文件构建张量元数据列表，用于验证 C++ 端的 GGUF 解析器输出是否一致。",
+      "tags": [
+        "test",
+        "gguf",
+        "verification"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:shell/test_gguf.py:_build_tensor_list",
+      "type": "function",
+      "name": "_build_tensor_list",
+      "filePath": "shell/test_gguf.py",
+      "lineRange": [
+        8,
+        73
+      ],
+      "summary": "解析 GGUF 文件头部，提取所有张量的名称、数据类型、形状和偏移量，返回张量元数据列表。",
+      "tags": [
+        "test",
+        "gguf",
+        "parser"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:shell/test_hf.py",
+      "type": "file",
+      "name": "test_hf.py",
+      "filePath": "shell/test_hf.py",
+      "summary": "HuggingFace 模型权重加载测试工具，从 transformers 模型中提取权重并转换为 GGUF 框架兼容格式，用于交叉验证。",
+      "tags": [
+        "test",
+        "huggingface",
+        "weight-conversion"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:shell/test_hf.py:load_weights_from_hf",
+      "type": "function",
+      "name": "load_weights_from_hf",
+      "filePath": "shell/test_hf.py",
+      "lineRange": [
+        9,
+        42
+      ],
+      "summary": "从 HuggingFace Qwen3 模型提取各层权重（embedding、attention、FFN、RMSNorm），转换为列主序并预计算 RoPE。",
+      "tags": [
+        "test",
+        "weight-loading",
+        "conversion"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/backend_cpu.cpp",
+      "type": "file",
+      "name": "backend_cpu.cpp",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "summary": "CPU 后端 Provider 实现，提供系统内存查询、CPU 型号检测、物理核心数统计等硬件信息接口，并通过静态注册器将 CPU 后端注册到 BackendRegistry。",
+      "tags": [
+        "backend",
+        "cpu",
+        "hardware-info",
+        "singleton"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/backend/backend_cpu.cpp:get_backend_info",
+      "type": "function",
+      "name": "get_backend_info",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "lineRange": [
+        10,
+        15
+      ],
+      "summary": "汇总 CPU 后端硬件信息：总内存、可用内存和 CPU 型号。",
+      "tags": [
+        "backend",
+        "hardware-info"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/backend/backend_cpu.cpp:get_system_memory",
+      "type": "function",
+      "name": "get_system_memory",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "lineRange": [
+        17,
+        33
+      ],
+      "summary": "跨平台获取系统总物理内存（Windows/Linux/macOS）。",
+      "tags": [
+        "system-info",
+        "cross-platform"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/backend/backend_cpu.cpp:get_system_available_memory",
+      "type": "function",
+      "name": "get_system_available_memory",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "lineRange": [
+        35,
+        61
+      ],
+      "summary": "跨平台获取系统可用内存（Windows/Linux/macOS），Linux 优先使用 /proc/meminfo。",
+      "tags": [
+        "system-info",
+        "cross-platform"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/backend/backend_cpu.cpp:get_cpu_name",
+      "type": "function",
+      "name": "get_cpu_name",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "lineRange": [
+        63,
+        98
+      ],
+      "summary": "跨平台获取 CPU 型号名称（Windows 注册表/Linux /proc/cpuinfo/macOS sysctl）。",
+      "tags": [
+        "system-info",
+        "cross-platform"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/backend/backend_cpu.cpp:get_physical_cores",
+      "type": "function",
+      "name": "get_physical_cores",
+      "filePath": "src/backend/backend_cpu.cpp",
+      "lineRange": [
+        113,
+        149
+      ],
+      "summary": "跨平台获取 CPU 物理核心数（Windows 使用 GetLogicalProcessorInformation，Linux 解析 /proc/cpuinfo）。",
+      "tags": [
+        "system-info",
+        "cross-platform"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/backend_cuda.cpp",
+      "type": "file",
+      "name": "backend_cuda.cpp",
+      "filePath": "src/backend/backend_cuda.cpp",
+      "summary": "CUDA 后端 Provider 实现，封装 CUDA Runtime API 查询 GPU 设备属性（SM 版本、显存、计算能力等），并注册到 BackendRegistry。",
+      "tags": [
+        "backend",
+        "cuda",
+        "gpu-info"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/backend/backend_cuda.cpp:get_backend_info",
+      "type": "function",
+      "name": "get_backend_info",
+      "filePath": "src/backend/backend_cuda.cpp",
+      "lineRange": [
+        47,
+        95
+      ],
+      "summary": "汇总 CUDA GPU 设备信息：设备名、SM 版本、显存容量/使用量、L2 缓存大小、最大线程数等。",
+      "tags": [
+        "backend",
+        "gpu-info",
+        "cuda"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/backend_vulkan.cpp",
+      "type": "file",
+      "name": "backend_vulkan.cpp",
+      "filePath": "src/backend/backend_vulkan.cpp",
+      "summary": "Vulkan 后端 Provider 实现，通过 VulkanContext 查询 GPU 设备属性和显存信息，提供设备信息打印功能并注册到 BackendRegistry。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "gpu-info"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cpu/activation.cpp",
+      "type": "file",
+      "name": "activation.cpp",
+      "filePath": "src/backend/cpu/activation.cpp",
+      "summary": "CPU 后端的激活函数算子实现，包含 Exp（指数）、Gelu（高斯误差线性单元）和 Silu（Swish）三种激活，使用 dtype::dispatch 模板进行类型分发。",
+      "tags": [
+        "backend",
+        "cpu",
+        "activation",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/cpu/arithmetic.cpp",
+      "type": "file",
+      "name": "arithmetic.cpp",
+      "filePath": "src/backend/cpu/arithmetic.cpp",
+      "summary": "CPU 后端的四则运算算子实现，包含 Add、Sub、Mul、Div 四种逐元素运算，通过 dtype::dispatch 支持多种数据类型。",
+      "tags": [
+        "backend",
+        "cpu",
+        "arithmetic",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/cpu/attention.cpp",
+      "type": "file",
+      "name": "attention.cpp",
+      "filePath": "src/backend/cpu/attention.cpp",
+      "summary": "CPU 后端的注意力算子实现，包含 Softmax、标准 Attention、FlashAttention 和 PagedAttention 四种模式，支持 GQA 和多数据类型的分页 KV cache。",
+      "tags": [
+        "backend",
+        "cpu",
+        "attention",
+        "operator",
+        "paged-attention"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/backend/cpu/attention.cpp:cpu_paged_attention",
+      "type": "function",
+      "name": "cpu_paged_attention",
+      "filePath": "src/backend/cpu/attention.cpp",
+      "lineRange": [
+        155,
+        233
+      ],
+      "summary": "CPU 实现的分页注意力算法，从分页 KV cache 中按 block 读取 K/V 数据，逐 token 计算注意力分数并累积加权输出。",
+      "tags": [
+        "attention",
+        "paged-attention",
+        "cpu"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/backend/cpu/embedding.cpp",
+      "type": "file",
+      "name": "embedding.cpp",
+      "filePath": "src/backend/cpu/embedding.cpp",
+      "summary": "CPU 后端的 Embedding 查找算子实现，根据 input_ids 从权重矩阵中查找对应嵌入向量，支持多种数据类型。",
+      "tags": [
+        "backend",
+        "cpu",
+        "embedding",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/cpu/linear.cpp",
+      "type": "file",
+      "name": "linear.cpp",
+      "filePath": "src/backend/cpu/linear.cpp",
+      "summary": "CPU 后端的线性层算子实现，使用 AVX2 SIMD 指令集优化矩阵乘法，支持 FP16/BF16 权重的高效加载和融合乘加运算。",
+      "tags": [
+        "backend",
+        "cpu",
+        "linear",
+        "simd",
+        "avx2"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 _mm256_fmadd_ps 实现 AVX2 FMA 融合乘加，通过 load_bf16x8_f32 将 BF16 数据转换为 FP32 向量进行计算。"
+    },
+    {
+      "id": "function:src/backend/cpu/linear.cpp:execute",
+      "type": "function",
+      "name": "execute",
+      "filePath": "src/backend/cpu/linear.cpp",
+      "lineRange": [
+        364,
+        389
+      ],
+      "summary": "CPU 线性层主执行函数，分发到 FP32/FP16/BF16 三种 SIMD 优化的矩阵乘法内核。",
+      "tags": [
+        "linear",
+        "simd",
+        "dispatch"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cpu/memcpy.cpp",
+      "type": "file",
+      "name": "memcpy.cpp",
+      "filePath": "src/backend/cpu/memcpy.cpp",
+      "summary": "CPU 后端的内存拷贝算子实现，提供主机到设备和设备到主机的内存复制（CPU 上为同一地址空间）。",
+      "tags": [
+        "backend",
+        "cpu",
+        "memcpy",
+        "operator"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/cpu/normalization.cpp",
+      "type": "file",
+      "name": "normalization.cpp",
+      "filePath": "src/backend/cpu/normalization.cpp",
+      "summary": "CPU 后端的归一化算子实现，包含 RMSNorm 和 LayerNorm 两种归一化方式，支持 FP32/FP16/BF16 多精度计算。",
+      "tags": [
+        "backend",
+        "cpu",
+        "normalization",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cpu/rope.cpp",
+      "type": "file",
+      "name": "rope.cpp",
+      "filePath": "src/backend/cpu/rope.cpp",
+      "summary": "CPU 后端的旋转位置编码（RoPE）算子实现，包含 cos/sin 预计算和 Q/K 向量旋转操作，支持多数据类型。",
+      "tags": [
+        "backend",
+        "cpu",
+        "rope",
+        "positional-encoding",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cpu/shape.cpp",
+      "type": "file",
+      "name": "shape.cpp",
+      "filePath": "src/backend/cpu/shape.cpp",
+      "summary": "CPU 后端的形状操作算子实现，包含 Reshape、Permute/Transpose 和 Concat 三种张量形状变换。",
+      "tags": [
+        "backend",
+        "cpu",
+        "shape",
+        "operator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/activation.cu",
+      "type": "file",
+      "name": "activation.cu",
+      "filePath": "src/backend/cuda/activation.cu",
+      "summary": "CUDA 后端的激活函数 kernel 实现，包含 Exp、Gelu 和 Silu 三种激活的 GPU 并行计算。",
+      "tags": [
+        "backend",
+        "cuda",
+        "activation",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/arithmetic.cu",
+      "type": "file",
+      "name": "arithmetic.cu",
+      "filePath": "src/backend/cuda/arithmetic.cu",
+      "summary": "CUDA 后端的四则运算 kernel 实现，包含 Add、Sub、Mul、Div 的 GPU 并行逐元素计算。",
+      "tags": [
+        "backend",
+        "cuda",
+        "arithmetic",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/attention.cu",
+      "type": "file",
+      "name": "attention.cu",
+      "filePath": "src/backend/cuda/attention.cu",
+      "summary": "CUDA 后端的注意力算子 kernel 实现，包含 Softmax、标准 Attention、FlashAttention 和 PagedAttention，利用 GPU 共享内存和 warp 级原语实现高性能计算。",
+      "tags": [
+        "backend",
+        "cuda",
+        "attention",
+        "kernel",
+        "paged-attention"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 __shfl_xor_sync 实现 warp 级 reduce，共享内存用于 block 内 softmax 归约和 KV cache 缓存。"
+    },
+    {
+      "id": "file:src/backend/cuda/linear.cu",
+      "type": "file",
+      "name": "linear.cu",
+      "filePath": "src/backend/cuda/linear.cu",
+      "summary": "CUDA 后端的线性层 kernel 实现，使用 tiled 矩阵乘法策略优化 GPU 上的矩阵-向量和矩阵-矩阵运算。",
+      "tags": [
+        "backend",
+        "cuda",
+        "linear",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/memcpy.cu",
+      "type": "file",
+      "name": "memcpy.cu",
+      "filePath": "src/backend/cuda/memcpy.cu",
+      "summary": "CUDA 后端的内存拷贝算子实现，封装 cudaMemcpy 进行主机与设备间的数据传输。",
+      "tags": [
+        "backend",
+        "cuda",
+        "memcpy",
+        "kernel"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/cuda/normalization.cu",
+      "type": "file",
+      "name": "normalization.cu",
+      "filePath": "src/backend/cuda/normalization.cu",
+      "summary": "CUDA 后端的归一化 kernel 实现，包含 RMSNorm 和 LayerNorm 的 GPU 并行计算，使用 block 级 reduce 求均值和方差。",
+      "tags": [
+        "backend",
+        "cuda",
+        "normalization",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/rope.cu",
+      "type": "file",
+      "name": "rope.cu",
+      "filePath": "src/backend/cuda/rope.cu",
+      "summary": "CUDA 后端的旋转位置编码 kernel 实现，包含 cos/sin 预计算和 Q/K 向量旋转的 GPU 并行版本。",
+      "tags": [
+        "backend",
+        "cuda",
+        "rope",
+        "positional-encoding",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/cuda/shape.cu",
+      "type": "file",
+      "name": "shape.cu",
+      "filePath": "src/backend/cuda/shape.cu",
+      "summary": "CUDA 后端的形状操作 kernel 实现，包含 Reshape、Permute/Transpose 和 Concat 的 GPU 并行版本。",
+      "tags": [
+        "backend",
+        "cuda",
+        "shape",
+        "kernel"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/backend/vulkan/activation.cpp",
+      "type": "file",
+      "name": "activation.cpp",
+      "filePath": "src/backend/vulkan/activation.cpp",
+      "summary": "Vulkan 后端激活函数的桩实现，包含 Silu、Gelu、Relu 三个操作的 execute 方法，当前均抛出未实现异常。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "activation",
+        "stub"
+      ],
+      "complexity": "simple",
+      "languageNotes": "三个重载 execute 函数均为桩实现，抛出 std::runtime_error。"
+    },
+    {
+      "id": "file:src/backend/vulkan/arithmetic.cpp",
+      "type": "file",
+      "name": "arithmetic.cpp",
+      "filePath": "src/backend/vulkan/arithmetic.cpp",
+      "summary": "Vulkan 后端算术运算的完整实现，通过 Vulkan compute shader 执行 Add 操作，包含 pipeline 管理、descriptor set 分配和 command buffer 提交。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "arithmetic",
+        "compute-shader"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 VulkanContext 管理 GPU 资源，通过 SPIR-V shader 执行向量加法运算。"
+    },
+    {
+      "id": "file:src/backend/vulkan/attention.cpp",
+      "type": "file",
+      "name": "attention.cpp",
+      "filePath": "src/backend/vulkan/attention.cpp",
+      "summary": "Vulkan 后端注意力机制的桩实现，包含 Sdpa、Attention、FlashAttention 等五个操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "attention",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/vulkan/linear.cpp",
+      "type": "file",
+      "name": "linear.cpp",
+      "filePath": "src/backend/vulkan/linear.cpp",
+      "summary": "Vulkan 后端线性层操作的桩实现，包含 Matmul、Linear、Transpose 三个操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "linear",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/vulkan/memcpy.cpp",
+      "type": "file",
+      "name": "memcpy.cpp",
+      "filePath": "src/backend/vulkan/memcpy.cpp",
+      "summary": "Vulkan 后端内存拷贝操作的桩实现，包含 Memcpy 操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "memcpy",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/vulkan/normalization.cpp",
+      "type": "file",
+      "name": "normalization.cpp",
+      "filePath": "src/backend/vulkan/normalization.cpp",
+      "summary": "Vulkan 后端归一化操作的桩实现，包含 RmsNorm 和 LayerNorm 两个操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "normalization",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/vulkan/rope.cpp",
+      "type": "file",
+      "name": "rope.cpp",
+      "filePath": "src/backend/vulkan/rope.cpp",
+      "summary": "Vulkan 后端旋转位置编码操作的桩实现，包含 ApplyRope 操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "rope",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/backend/vulkan/shape.cpp",
+      "type": "file",
+      "name": "shape.cpp",
+      "filePath": "src/backend/vulkan/shape.cpp",
+      "summary": "Vulkan 后端形状操作的桩实现，包含 Reshape、Permute、Concat、Repeat 四个操作的 execute 方法。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "shape",
+        "stub"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/core/executor.cpp",
+      "type": "file",
+      "name": "executor.cpp",
+      "filePath": "src/core/executor.cpp",
+      "summary": "推理执行器核心实现，负责模型的前向计算、文本生成（prefill + decode）和多种采样策略（argmax、top-p），管理计算图的按层调度和内核分发。",
+      "tags": [
+        "core",
+        "executor",
+        "inference",
+        "sampling",
+        "generation"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 C++23 std::format 和 std::print，支持 bfloat16 数据类型，通过 ThreadPool 实现并行计算。"
+    },
+    {
+      "id": "function:src/core/executor.cpp:Executor",
+      "type": "function",
+      "name": "Executor",
+      "filePath": "src/core/executor.cpp",
+      "lineRange": [
+        23,
+        106
+      ],
+      "summary": "Executor 构造函数，初始化内存管理器和计算图，按拓扑序预排序所有张量的执行计划，处理 CUDA 同步和多设备分配。",
+      "tags": [
+        "constructor",
+        "initialization",
+        "scheduling"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/core/executor.cpp:generate",
+      "type": "function",
+      "name": "generate",
+      "filePath": "src/core/executor.cpp",
+      "lineRange": [
+        165,
+        191
+      ],
+      "summary": "文本生成主循环，接收 prompt 文本，通过 prefill 处理初始 token，然后循环 decode 生成新 token 直到遇到 EOS 或达到最大长度。",
+      "tags": [
+        "generation",
+        "text-generation",
+        "main-loop"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/core/executor.cpp:sample",
+      "type": "function",
+      "name": "sample",
+      "filePath": "src/core/executor.cpp",
+      "lineRange": [
+        250,
+        319
+      ],
+      "summary": "通用采样函数，根据 temperature 和 top_p 参数选择采样策略：temperature=0 时使用 argmax，否则使用 top-p 采样。",
+      "tags": [
+        "sampling",
+        "temperature",
+        "top-p"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/core/executor.cpp:dispatch_kernel",
+      "type": "function",
+      "name": "dispatch_kernel",
+      "filePath": "src/core/executor.cpp",
+      "lineRange": [
+        455,
+        484
+      ],
+      "summary": "内核分发函数，根据张量的操作类型将计算任务分发到对应的 kernel 实现（reshape、permute、add、mul、rms_norm、matmul 等）。",
+      "tags": [
+        "kernel-dispatch",
+        "operation-routing"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/gguf_parser.cpp",
+      "type": "file",
+      "name": "gguf_parser.cpp",
+      "filePath": "src/core/gguf_parser.cpp",
+      "summary": "GGUF 文件格式解析器实现，支持读取模型元数据（架构、名称、参数）和张量信息，处理多种数据类型（int8/16/32/64、float32/64、string、array）。",
+      "tags": [
+        "core",
+        "parser",
+        "gguf",
+        "file-format",
+        "binary"
+      ],
+      "complexity": "complex",
+      "languageNotes": "手动实现小端字节序读取，支持 GGUF 规范中定义的所有元数据类型。"
+    },
+    {
+      "id": "function:src/core/gguf_parser.cpp:parse",
+      "type": "function",
+      "name": "parse",
+      "filePath": "src/core/gguf_parser.cpp",
+      "lineRange": [
+        69,
+        96
+      ],
+      "summary": "GGUF 文件主解析流程，读取版本号、tensor 数量和 metadata 数量，依次解析元数据和张量信息，计算数据偏移量。",
+      "tags": [
+        "parsing",
+        "main-flow"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/core/gguf_parser.cpp:read_metadata_value",
+      "type": "function",
+      "name": "read_metadata_value",
+      "filePath": "src/core/gguf_parser.cpp",
+      "lineRange": [
+        198,
+        239
+      ],
+      "summary": "根据 GGUF 类型读取元数据值，支持 uint8 到 uint64、float32/64、string 和 array 类型的递归解析。",
+      "tags": [
+        "parsing",
+        "metadata",
+        "type-dispatch"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/graph.cpp",
+      "type": "file",
+      "name": "graph.cpp",
+      "filePath": "src/core/graph.cpp",
+      "summary": "计算图核心实现，提供 DAG 拓扑排序、BFS 反向收集、图构建和 DOT 格式导出功能，是推理引擎的 IR 基础设施。",
+      "tags": [
+        "core",
+        "graph",
+        "dag",
+        "topological-sort",
+        "ir"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 Kahn 算法实现拓扑排序，支持环检测和错误报告。"
+    },
+    {
+      "id": "function:src/core/graph.cpp:topological_sort",
+      "type": "function",
+      "name": "topological_sort",
+      "filePath": "src/core/graph.cpp",
+      "lineRange": [
+        29,
+        88
+      ],
+      "summary": "基于 Kahn 算法的拓扑排序实现，计算张量的执行层级，检测图中的环并报告错误。",
+      "tags": [
+        "algorithm",
+        "topological-sort",
+        "kahn"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/core/graph.cpp:export_dot",
+      "type": "function",
+      "name": "export_dot",
+      "filePath": "src/core/graph.cpp",
+      "lineRange": [
+        172,
+        211
+      ],
+      "summary": "将计算图导出为 DOT 格式文件，使用不同颜色区分权重、输入、输出、缓存和激活张量。",
+      "tags": [
+        "visualization",
+        "dot-export",
+        "debugging"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/kernels.cpp",
+      "type": "file",
+      "name": "kernels.cpp",
+      "filePath": "src/core/kernels.cpp",
+      "summary": "内核调度中心实现，为所有 LLM 推理操作提供统一的设备分发接口，通过模板特化将操作分发到 CPU/CUDA/Vulkan 后端。",
+      "tags": [
+        "core",
+        "kernels",
+        "dispatch",
+        "multi-backend"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 C++ 模板和 constexpr if 实现编译期设备分发，避免运行时开销。"
+    },
+    {
+      "id": "file:src/core/manager.cpp",
+      "type": "file",
+      "name": "manager.cpp",
+      "filePath": "src/core/manager.cpp",
+      "summary": "内存管理器实现，负责创建设备资源、分配内存池、加载模型权重到 CPU/CUDA/Vulkan 设备，管理激活内存的重置和使用统计。",
+      "tags": [
+        "core",
+        "memory",
+        "resource-management",
+        "weight-loading"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "使用 RAII 模式管理设备内存资源，支持跨设备的权重加载和内存锁定。"
+    },
+    {
+      "id": "function:src/core/manager.cpp:load_weights",
+      "type": "function",
+      "name": "load_weights",
+      "filePath": "src/core/manager.cpp",
+      "lineRange": [
+        105,
+        171
+      ],
+      "summary": "从 GGUF 解析器加载模型权重到目标设备，处理 CPU 直接读取、CUDA 内存拷贝和 Vulkan 缓冲区分配。",
+      "tags": [
+        "weight-loading",
+        "multi-device",
+        "memory-transfer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/core/page_attention.cpp",
+      "type": "file",
+      "name": "page_attention.cpp",
+      "filePath": "src/core/page_attention.cpp",
+      "summary": "分页注意力机制实现，通过 BlockPool 管理 KV 缓存的物理块分配，支持从张量和位置两种方式追加 KV 数据。",
+      "tags": [
+        "core",
+        "attention",
+        "paged-attention",
+        "kv-cache"
+      ],
+      "complexity": "complex",
+      "languageNotes": "借鉴操作系统虚拟内存分页思想，将 KV 缓存分为固定大小的物理块进行管理。"
+    },
+    {
+      "id": "function:src/core/page_attention.cpp:append_kv_from_tensor",
+      "type": "function",
+      "name": "append_kv_from_tensor",
+      "filePath": "src/core/page_attention.cpp",
+      "lineRange": [
+        97,
+        138
+      ],
+      "summary": "从张量数据追加 KV 缓存，将 K 和 V 张量数据按块大小分片拷贝到分页管理的物理块中。",
+      "tags": [
+        "kv-cache",
+        "tensor-copy",
+        "block-management"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/core/pools.cpp",
+      "type": "file",
+      "name": "pools.cpp",
+      "filePath": "src/core/pools.cpp",
+      "summary": "内存池实现，提供线性分配器式的内存管理，支持对齐分配、重置和使用量统计。",
+      "tags": [
+        "core",
+        "memory-pool",
+        "allocator",
+        "linear-allocator"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/resource_cpu.cpp",
+      "type": "file",
+      "name": "resource_cpu.cpp",
+      "filePath": "src/core/resource_cpu.cpp",
+      "summary": "CPU 内存资源实现，提供带内存锁定的分配和释放，支持 Windows VirtualLock 和 POSIX mlock。",
+      "tags": [
+        "backend",
+        "cpu",
+        "memory-resource",
+        "memory-lock"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/resource_cuda.cpp",
+      "type": "file",
+      "name": "resource_cuda.cpp",
+      "filePath": "src/core/resource_cuda.cpp",
+      "summary": "CUDA 内存资源实现，封装 cudaMalloc/cudaFree 提供 GPU 设备内存管理。",
+      "tags": [
+        "backend",
+        "cuda",
+        "memory-resource",
+        "gpu"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/core/resource_vulkan.cpp",
+      "type": "file",
+      "name": "resource_vulkan.cpp",
+      "filePath": "src/core/resource_vulkan.cpp",
+      "summary": "Vulkan 内存资源实现，通过 VulkanContext 管理 GPU 缓冲区和设备内存的分配与释放。",
+      "tags": [
+        "backend",
+        "vulkan",
+        "memory-resource",
+        "gpu"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/core/scheduler.cpp",
+      "type": "file",
+      "name": "scheduler.cpp",
+      "filePath": "src/core/scheduler.cpp",
+      "summary": "推理调度器实现，负责估算各层计算成本、将模型层分配到不同设备、插入跨设备拷贝边、创建内存池和初始化 KV 缓存。",
+      "tags": [
+        "core",
+        "scheduler",
+        "layer-assignment",
+        "multi-device",
+        "optimization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用贪心算法将 Transformer 层分配到可用设备，支持 CPU/CUDA/Vulkan 混合调度。"
+    },
+    {
+      "id": "function:src/core/scheduler.cpp:schedule",
+      "type": "function",
+      "name": "schedule",
+      "filePath": "src/core/scheduler.cpp",
+      "lineRange": [
+        7,
+        36
+      ],
+      "summary": "调度主入口，依次执行层成本估算、设备分配、全局节点分配、拷贝边插入、内存池创建和 KV 缓存初始化。",
+      "tags": [
+        "scheduling",
+        "main-flow",
+        "orchestration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/core/scheduler.cpp:create_memory_pools",
+      "type": "function",
+      "name": "create_memory_pools",
+      "filePath": "src/core/scheduler.cpp",
+      "lineRange": [
+        295,
+        382
+      ],
+      "summary": "为每个设备创建内存池，计算权重、激活和 KV 缓存的内存需求，按比例分配可用显存。",
+      "tags": [
+        "memory-management",
+        "pool-creation",
+        "resource-allocation"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/core/tokenizer.cpp",
+      "type": "file",
+      "name": "tokenizer.cpp",
+      "filePath": "src/core/tokenizer.cpp",
+      "summary": "BPE 分词器完整实现，支持从 GGUF 加载词表、Unicode 字节映射、预分词（处理缩写、数字、空格）、BPE 合并和 token 编解码。",
+      "tags": [
+        "core",
+        "tokenizer",
+        "bpe",
+        "nlp",
+        "unicode"
+      ],
+      "complexity": "complex",
+      "languageNotes": "实现 GPT-2 风格的字节级 BPE，包含完整的 Unicode 字节映射表和缩写匹配逻辑。"
+    },
+    {
+      "id": "function:src/core/tokenizer.cpp:encode",
+      "type": "function",
+      "name": "encode",
+      "filePath": "src/core/tokenizer.cpp",
+      "lineRange": [
+        490,
+        540
+      ],
+      "summary": "文本编码函数，将输入文本转换为 token ID 序列，处理 system/user prompt 标记，通过预分词和 BPE 生成最终 token。",
+      "tags": [
+        "encoding",
+        "tokenization",
+        "text-to-tokens"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/core/tokenizer.cpp:bpe",
+      "type": "function",
+      "name": "bpe",
+      "filePath": "src/core/tokenizer.cpp",
+      "lineRange": [
+        422,
+        486
+      ],
+      "summary": "BPE 合并算法实现，迭代查找最高优先级的相邻 token 对进行合并，直到无法继续合并为止。",
+      "tags": [
+        "bpe",
+        "merge-algorithm",
+        "core-algorithm"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/model/model.cpp",
+      "type": "file",
+      "name": "model.cpp",
+      "filePath": "src/model/model.cpp",
+      "summary": "模型工厂注册文件，通过静态初始化器注册 Qwen3 和 Qwen3.5 两种模型架构到 ModelFactory。",
+      "tags": [
+        "model",
+        "factory",
+        "registration",
+        "initialization"
+      ],
+      "complexity": "simple",
+      "languageNotes": "使用静态对象构造函数实现自动注册模式。"
+    },
+    {
+      "id": "file:src/model/Qwen3.cpp",
+      "type": "file",
+      "name": "Qwen3.cpp",
+      "filePath": "src/model/Qwen3.cpp",
+      "summary": "Qwen3 模型架构实现，包含配置解析（从 GGUF 元数据读取层数、头数等参数）和计算图构建（embedding、Transformer 层、lm_head）。",
+      "tags": [
+        "model",
+        "qwen3",
+        "transformer",
+        "graph-building"
+      ],
+      "complexity": "complex",
+      "languageNotes": "使用 OpFactory 构建 DAG 计算图，支持 RoPE 位置编码和 RMSNorm。"
+    },
+    {
+      "id": "function:src/model/Qwen3.cpp:build_graph",
+      "type": "function",
+      "name": "build_graph",
+      "filePath": "src/model/Qwen3.cpp",
+      "lineRange": [
+        53,
+        102
+      ],
+      "summary": "构建 Qwen3 模型的计算图，创建 embedding、RoPE 缓存、多层 Transformer 块和最终的 lm_head 线性层。",
+      "tags": [
+        "graph-building",
+        "model-construction",
+        "transformer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/model/Qwen35.cpp",
+      "type": "file",
+      "name": "Qwen35.cpp",
+      "filePath": "src/model/Qwen35.cpp",
+      "summary": "Qwen3.5 模型架构实现，支持线性注意力和全注意力混合的 Transformer 层，配置解析支持 attention_sink 等高级参数。",
+      "tags": [
+        "model",
+        "qwen35",
+        "hybrid-attention",
+        "linear-attention"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Qwen3.5 使用线性注意力和全注意力混合架构，通过 layer_types 配置每层的注意力类型。"
+    },
+    {
+      "id": "function:src/model/Qwen35.cpp:build_graph",
+      "type": "function",
+      "name": "build_graph",
+      "filePath": "src/model/Qwen35.cpp",
+      "lineRange": [
+        88,
+        132
+      ],
+      "summary": "构建 Qwen3.5 模型的计算图，根据 layer_types 配置选择构建线性注意力层或全注意力层。",
+      "tags": [
+        "graph-building",
+        "hybrid-architecture",
+        "attention-routing"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/benchmark.cpp",
+      "type": "file",
+      "name": "benchmark.cpp",
+      "filePath": "tests/benchmark.cpp",
+      "summary": "推理性能基准测试程序，测量 prefill 和 decode 阶段的吞吐量（tokens/sec），支持配置生成 token 数和线程数。",
+      "tags": [
+        "test",
+        "benchmark",
+        "performance",
+        "throughput"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/benchmark.cpp:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/benchmark.cpp",
+      "lineRange": [
+        18,
+        98
+      ],
+      "summary": "基准测试主函数，加载模型、构建图、调度设备、加载权重后执行多轮生成测试，统计 prefill 和 decode 的平均速度。",
+      "tags": [
+        "benchmark",
+        "main-entry",
+        "performance-test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:tests/genllm-cli.cpp",
+      "type": "file",
+      "name": "genllm-cli.cpp",
+      "filePath": "tests/genllm-cli.cpp",
+      "summary": "命令行交互式推理客户端，支持单次生成和交互式对话模式，提供温度、top-p、最大序列长度等参数配置。",
+      "tags": [
+        "test",
+        "cli",
+        "interactive",
+        "inference-client"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/genllm-cli.cpp:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/genllm-cli.cpp",
+      "lineRange": [
+        82,
+        189
+      ],
+      "summary": "CLI 主函数，解析参数后加载模型，支持单次 prompt 生成和交互式对话两种模式，实现上下文累积的多轮对话。",
+      "tags": [
+        "cli",
+        "main-entry",
+        "interactive-mode"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:tests/main.cpp",
+      "type": "file",
+      "name": "main.cpp",
+      "filePath": "tests/main.cpp",
+      "summary": "基础集成测试程序，验证完整的模型加载、图构建、权重加载、tokenize 和生成流程。",
+      "tags": [
+        "test",
+        "integration",
+        "smoke-test"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:tests/main.cpp:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "tests/main.cpp",
+      "lineRange": [
+        10,
+        67
+      ],
+      "summary": "集成测试主函数，依次执行设备打印、模型创建、图构建、调度、权重加载、tokenize 和文本生成的完整流程。",
+      "tags": [
+        "integration-test",
+        "main-entry",
+        "end-to-end"
+      ],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "config:cmake/Genllm.cmake.in",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "file:include/backend/backend.h",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "file:include/3rd/json.hpp",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "file:include/backend/cpu/activation.h",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "file:include/backend/cuda/activation.h",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "config:CMakeLists.txt",
+      "target": "file:include/backend/vulkan/activation.h",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "class:include/backend/backend.h:BackendInfo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "class:include/backend/backend.h:BackendProvider",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "class:include/backend/backend.h:BackendRegistry",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "class:include/backend/backend.h:CPUBackendProvider",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "class:include/backend/backend.h:DeviceManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/backend/backend.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/activation.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/arithmetic.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/attention.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/embedding.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/linear.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/memcpy.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/normalization.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/rope.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cpu/shape.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/activation.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/arithmetic.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/attention.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/linear.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/memcpy.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/normalization.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/rope.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/cuda/shape.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/activation.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/arithmetic.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/attention.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/linear.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/memcpy.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/normalization.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/rope.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/backend/vulkan/shape.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "class:include/backend/backend.h:BackendProvider",
+      "target": "class:include/backend/backend.h:CPUBackendProvider",
+      "type": "inherits",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "file:include/backend/vulkan/vulkan_context.h",
+      "target": "class:include/backend/vulkan/vulkan_context.h:VulkanContext",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/executor.h",
+      "target": "class:include/core/executor.h:Executor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "class:include/core/gguf_parser.h:TensorInfo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "class:include/core/gguf_parser.h:GGUFInfo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "class:include/core/gguf_parser.h:GGUFParser",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/graph.h",
+      "target": "class:include/core/graph.h:ComputeGraph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "class:include/core/manager.h:MemoryManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/page_attention.h",
+      "target": "class:include/core/page_attention.h:BlockPool",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/page_attention.h",
+      "target": "class:include/core/page_attention.h:PagedAttentionManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/pools.h",
+      "target": "class:include/core/pools.h:MemoryPool",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/pools.h",
+      "target": "class:include/core/pools.h:DevicePools",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/resource.h",
+      "target": "class:include/core/resource.h:IMemoryResource",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/resource.h",
+      "target": "class:include/core/resource.h:CpuMemoryResource",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/scheduler.h",
+      "target": "class:include/core/scheduler.h:GraphScheduler",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/tensor.hpp",
+      "target": "class:include/core/tensor.hpp:Tensor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/thread_pool.h",
+      "target": "class:include/core/thread_pool.h:ThreadPool",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/tokenizer.h",
+      "target": "class:include/core/tokenizer.h:Tokenizer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/model.h",
+      "target": "class:include/model/model.h:ModelBase",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/model.h",
+      "target": "class:include/model/model.h:ModelFactory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "class:include/model/op_factory.hpp:OpFactory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "function:include/model/op_factory.hpp:rope_cache",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "function:include/model/op_factory.hpp:apply_rope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "function:include/model/op_factory.hpp:infer_linear_output",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/Qwen3.hpp",
+      "target": "class:include/model/Qwen3.hpp:Qwen3Model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/model/Qwen35.hpp",
+      "target": "class:include/model/Qwen35.hpp:Qwen35Model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/bfloat16.hpp",
+      "target": "class:include/utils/bfloat16.hpp:bfloat16_t",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/dtype_traits.hpp",
+      "target": "function:include/utils/dtype_traits.hpp:to_f32_rt",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/dtype_traits.hpp",
+      "target": "function:include/utils/dtype_traits.hpp:from_f32_rt",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/float16.hpp",
+      "target": "class:include/utils/float16.hpp:float16_t",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/tools.hpp",
+      "target": "function:include/utils/tools.hpp:tensor_dims_to_string",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/tools.hpp",
+      "target": "function:include/utils/tools.hpp:println",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/utils/utils.hpp",
+      "target": "function:include/utils/utils.hpp:data_type_size",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:include/core/executor.h",
+      "target": "file:include/core/scheduler.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/executor.h",
+      "target": "file:include/core/thread_pool.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/graph.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/kernels.h",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/core/page_attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/core/pools.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/core/resource.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/manager.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/page_attention.h",
+      "target": "file:include/core/pools.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/page_attention.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/pools.h",
+      "target": "file:include/core/resource.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/resource.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/scheduler.h",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/scheduler.h",
+      "target": "file:include/core/manager.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/scheduler.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/tensor.hpp",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/tokenizer.h",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/model.h",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/model.h",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/model.h",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/op_factory.hpp",
+      "target": "file:include/utils/tools.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/Qwen3.hpp",
+      "target": "file:include/model/model.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/Qwen35.hpp",
+      "target": "file:include/model/model.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/utils/dtype_traits.hpp",
+      "target": "file:include/utils/bfloat16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/utils/dtype_traits.hpp",
+      "target": "file:include/utils/float16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/utils/dtype_traits.hpp",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/utils/tools.hpp",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/utils/tools.hpp",
+      "target": "file:include/utils/bfloat16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/gguf_parser.h",
+      "target": "file:include/3rd/json.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/core/scheduler.h",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:include/model/Qwen3.hpp",
+      "target": "class:include/model/model.h:ModelBase",
+      "type": "implements",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "file:include/model/Qwen35.hpp",
+      "target": "class:include/model/model.h:ModelBase",
+      "type": "implements",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "class:include/core/resource.h:CpuMemoryResource",
+      "target": "class:include/core/resource.h:IMemoryResource",
+      "type": "implements",
+      "direction": "forward",
+      "weight": 0.9
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:include/core/executor.h",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:include/core/scheduler.h",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:include/core/page_attention.h",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:include/model/Qwen3.hpp",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "file:include/backend/vulkan/vulkan_context.h",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "file:shell/gguf.py",
+      "target": "class:shell/gguf.py:GGUFTorchLoader",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "class:shell/model.py:Qwen3Config",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "class:shell/model.py:Qwen3Attention",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "class:shell/model.py:Qwen3FFN",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "class:shell/model.py:Qwen3Block",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "class:shell/model.py:Qwen3Model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:embedding_lookup",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:rms_norm",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:linear",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:silu",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:compute_rope_cos_sin",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:apply_rope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/ops.py",
+      "target": "function:shell/ops.py:scaled_dot_product_attention",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/test_gguf.py",
+      "target": "function:shell/test_gguf.py:_build_tensor_list",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/test_hf.py",
+      "target": "function:shell/test_hf.py:load_weights_from_hf",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "function:src/backend/backend_cpu.cpp:get_backend_info",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "function:src/backend/backend_cpu.cpp:get_system_memory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "function:src/backend/backend_cpu.cpp:get_system_available_memory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "function:src/backend/backend_cpu.cpp:get_cpu_name",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "function:src/backend/backend_cpu.cpp:get_physical_cores",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/backend_cuda.cpp",
+      "target": "function:src/backend/backend_cuda.cpp:get_backend_info",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/cpu/attention.cpp",
+      "target": "function:src/backend/cpu/attention.cpp:cpu_paged_attention",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/cpu/linear.cpp",
+      "target": "function:src/backend/cpu/linear.cpp:execute",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "file:shell/ops.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:shell/model.py",
+      "target": "file:shell/gguf.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:shell/test_hf.py",
+      "target": "file:shell/ops.py",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/backend/backend_cpu.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/backend_cuda.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/backend_vulkan.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/backend_vulkan.cpp",
+      "target": "file:include/backend/vulkan/vulkan_context.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/activation.cpp",
+      "target": "file:include/backend/cpu/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/activation.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/arithmetic.cpp",
+      "target": "file:include/backend/cpu/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/arithmetic.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/attention.cpp",
+      "target": "file:include/backend/cpu/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/attention.cpp",
+      "target": "file:include/core/manager.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/attention.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/embedding.cpp",
+      "target": "file:include/backend/cpu/embedding.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/embedding.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/linear.cpp",
+      "target": "file:include/backend/cpu/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/linear.cpp",
+      "target": "file:include/utils/bfloat16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/linear.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/linear.cpp",
+      "target": "file:include/utils/float16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/memcpy.cpp",
+      "target": "file:include/backend/cpu/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/memcpy.cpp",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/normalization.cpp",
+      "target": "file:include/backend/cpu/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/normalization.cpp",
+      "target": "file:include/utils/bfloat16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/normalization.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/normalization.cpp",
+      "target": "file:include/utils/float16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/rope.cpp",
+      "target": "file:include/backend/cpu/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/rope.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/shape.cpp",
+      "target": "file:include/backend/cpu/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cpu/shape.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/activation.cu",
+      "target": "file:include/backend/cuda/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/activation.cu",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/activation.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/arithmetic.cu",
+      "target": "file:include/backend/cuda/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/arithmetic.cu",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/arithmetic.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/attention.cu",
+      "target": "file:include/backend/cuda/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/attention.cu",
+      "target": "file:include/core/manager.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/attention.cu",
+      "target": "file:include/core/page_attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/attention.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/attention.cu",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/linear.cu",
+      "target": "file:include/backend/cuda/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/linear.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/memcpy.cu",
+      "target": "file:include/backend/cuda/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/memcpy.cu",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/normalization.cu",
+      "target": "file:include/backend/cuda/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/normalization.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/rope.cu",
+      "target": "file:include/backend/cuda/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/rope.cu",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/rope.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/shape.cu",
+      "target": "file:include/backend/cuda/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/shape.cu",
+      "target": "file:include/core/tensor.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/cuda/shape.cu",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "function:src/core/executor.cpp:Executor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "function:src/core/executor.cpp:generate",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "function:src/core/executor.cpp:sample",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "function:src/core/executor.cpp:dispatch_kernel",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/gguf_parser.cpp",
+      "target": "function:src/core/gguf_parser.cpp:parse",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/gguf_parser.cpp",
+      "target": "function:src/core/gguf_parser.cpp:read_metadata_value",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/graph.cpp",
+      "target": "function:src/core/graph.cpp:topological_sort",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/graph.cpp",
+      "target": "function:src/core/graph.cpp:export_dot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "function:src/core/manager.cpp:load_weights",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/page_attention.cpp",
+      "target": "function:src/core/page_attention.cpp:append_kv_from_tensor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "function:src/core/scheduler.cpp:schedule",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "function:src/core/scheduler.cpp:create_memory_pools",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/tokenizer.cpp",
+      "target": "function:src/core/tokenizer.cpp:encode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/core/tokenizer.cpp",
+      "target": "function:src/core/tokenizer.cpp:bpe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/model/Qwen3.cpp",
+      "target": "function:src/model/Qwen3.cpp:build_graph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/model/Qwen35.cpp",
+      "target": "function:src/model/Qwen35.cpp:build_graph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "function:tests/benchmark.cpp:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "function:tests/genllm-cli.cpp:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "function:tests/main.cpp:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/backend/vulkan/activation.cpp",
+      "target": "file:include/backend/vulkan/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/arithmetic.cpp",
+      "target": "file:include/backend/vulkan/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/arithmetic.cpp",
+      "target": "file:include/backend/vulkan/spv/add_f32.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/arithmetic.cpp",
+      "target": "file:include/backend/vulkan/vulkan_context.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/attention.cpp",
+      "target": "file:include/backend/vulkan/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/linear.cpp",
+      "target": "file:include/backend/vulkan/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/memcpy.cpp",
+      "target": "file:include/backend/vulkan/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/normalization.cpp",
+      "target": "file:include/backend/vulkan/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/rope.cpp",
+      "target": "file:include/backend/vulkan/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/backend/vulkan/shape.cpp",
+      "target": "file:include/backend/vulkan/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/core/executor.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/core/kernels.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/core/tokenizer.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/model/op_factory.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/utils/bfloat16.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:include/utils/tools.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/gguf_parser.cpp",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/graph.cpp",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/embedding.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cpu/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/cuda/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/activation.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/arithmetic.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/linear.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/memcpy.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/normalization.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/rope.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/backend/vulkan/shape.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/core/kernels.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/utils/dtype_traits.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/kernels.cpp",
+      "target": "file:include/utils/utils.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "file:include/core/manager.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/page_attention.cpp",
+      "target": "file:include/core/page_attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/pools.cpp",
+      "target": "file:include/core/pools.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/resource_cpu.cpp",
+      "target": "file:include/core/resource.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/resource_cuda.cpp",
+      "target": "file:include/core/resource.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/resource_vulkan.cpp",
+      "target": "file:include/backend/vulkan/vulkan_context.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/resource_vulkan.cpp",
+      "target": "file:include/core/resource.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "file:include/core/page_attention.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "file:include/core/scheduler.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/core/tokenizer.cpp",
+      "target": "file:include/core/tokenizer.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/model.cpp",
+      "target": "file:include/model/Qwen3.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/model.cpp",
+      "target": "file:include/model/Qwen35.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/Qwen3.cpp",
+      "target": "file:include/model/Qwen3.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/Qwen3.cpp",
+      "target": "file:include/model/op_factory.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/Qwen35.cpp",
+      "target": "file:include/model/Qwen35.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/Qwen35.cpp",
+      "target": "file:include/model/op_factory.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/Qwen35.cpp",
+      "target": "file:include/utils/tools.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/core/executor.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/core/tokenizer.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/model/model.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:include/utils/tools.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/core/executor.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/core/tokenizer.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:include/model/model.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/backend/backend.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/core/executor.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/core/gguf_parser.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/core/graph.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/core/tokenizer.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/model/model.h",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:include/utils/tools.hpp",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/model/model.cpp",
+      "target": "file:src/model/Qwen3.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/model/model.cpp",
+      "target": "file:src/model/Qwen35.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:src/core/kernels.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/executor.cpp",
+      "target": "file:src/core/tokenizer.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "file:src/core/page_attention.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/scheduler.cpp",
+      "target": "file:src/core/graph.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "file:src/core/resource_cpu.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "file:src/core/resource_cuda.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "file:src/core/resource_vulkan.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/core/manager.cpp",
+      "target": "file:src/core/pools.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:src/core/executor.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:src/core/gguf_parser.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:src/core/tokenizer.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/benchmark.cpp",
+      "target": "file:src/model/model.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:src/core/executor.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:src/core/gguf_parser.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:src/core/tokenizer.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/genllm-cli.cpp",
+      "target": "file:src/model/model.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:src/core/executor.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:src/core/gguf_parser.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:src/core/tokenizer.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:tests/main.cpp",
+      "target": "file:src/model/model.cpp",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:shell/gguf.py",
+      "target": "file:shell/test_gguf.py",
+      "type": "tested_by",
+      "direction": "forward",
+      "weight": 0.5,
+      "description": "Path-based pairing (deterministic)"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:utility",
+      "name": "工具层",
+      "description": "基础类型定义与工具函数，包括 DataType/Device 枚举、BF16/FP16 半精度浮点实现、数据类型特性分发、张量调试打印等，是整个框架的类型基础设施，被所有其他层依赖。",
+      "nodeIds": [
+        "file:include/utils/utils.hpp",
+        "file:include/utils/bfloat16.hpp",
+        "file:include/utils/float16.hpp",
+        "file:include/utils/dtype_traits.hpp",
+        "file:include/utils/tools.hpp"
+      ]
+    },
+    {
+      "id": "layer:core",
+      "name": "核心引擎层",
+      "description": "推理引擎核心运行时，包含 Tensor 数据结构、DAG 计算图 IR、拓扑排序与调度器、分页注意力管理、双层内存池、GGUF 模型解析器、BPE 分词器、算子调度中心和线程池，负责模型加载、图构建与推理执行的完整流程。",
+      "nodeIds": [
+        "file:include/core/tensor.hpp",
+        "file:include/core/graph.h",
+        "file:include/core/scheduler.h",
+        "file:include/core/executor.h",
+        "file:include/core/kernels.h",
+        "file:include/core/manager.h",
+        "file:include/core/page_attention.h",
+        "file:include/core/pools.h",
+        "file:include/core/resource.h",
+        "file:include/core/gguf_parser.h",
+        "file:include/core/tokenizer.h",
+        "file:include/core/thread_pool.h",
+        "file:include/3rd/json.hpp",
+        "file:src/core/graph.cpp",
+        "file:src/core/scheduler.cpp",
+        "file:src/core/executor.cpp",
+        "file:src/core/kernels.cpp",
+        "file:src/core/manager.cpp",
+        "file:src/core/page_attention.cpp",
+        "file:src/core/pools.cpp",
+        "file:src/core/resource_cpu.cpp",
+        "file:src/core/resource_cuda.cpp",
+        "file:src/core/resource_vulkan.cpp",
+        "file:src/core/gguf_parser.cpp",
+        "file:src/core/tokenizer.cpp"
+      ]
+    },
+    {
+      "id": "layer:backend",
+      "name": "算子后端层",
+      "description": "CPU/CUDA/Vulkan 三后端的算子声明与实现，涵盖激活函数、四则运算、注意力机制（含 FlashAttention 和 PagedAttention）、Embedding、线性层（含 AVX2 SIMD 优化）、内存拷贝、归一化、RoPE 位置编码和形状操作，以及后端注册系统和 Vulkan 上下文管理。",
+      "nodeIds": [
+        "file:include/backend/backend.h",
+        "file:include/backend/cpu/activation.h",
+        "file:include/backend/cpu/arithmetic.h",
+        "file:include/backend/cpu/attention.h",
+        "file:include/backend/cpu/embedding.h",
+        "file:include/backend/cpu/linear.h",
+        "file:include/backend/cpu/memcpy.h",
+        "file:include/backend/cpu/normalization.h",
+        "file:include/backend/cpu/rope.h",
+        "file:include/backend/cpu/shape.h",
+        "file:include/backend/cuda/activation.h",
+        "file:include/backend/cuda/arithmetic.h",
+        "file:include/backend/cuda/attention.h",
+        "file:include/backend/cuda/linear.h",
+        "file:include/backend/cuda/memcpy.h",
+        "file:include/backend/cuda/normalization.h",
+        "file:include/backend/cuda/rope.h",
+        "file:include/backend/cuda/shape.h",
+        "file:include/backend/vulkan/activation.h",
+        "file:include/backend/vulkan/arithmetic.h",
+        "file:include/backend/vulkan/attention.h",
+        "file:include/backend/vulkan/linear.h",
+        "file:include/backend/vulkan/memcpy.h",
+        "file:include/backend/vulkan/normalization.h",
+        "file:include/backend/vulkan/rope.h",
+        "file:include/backend/vulkan/shape.h",
+        "file:include/backend/vulkan/spv/add_f32.h",
+        "file:include/backend/vulkan/vulkan_context.h",
+        "file:src/backend/backend_cpu.cpp",
+        "file:src/backend/backend_cuda.cpp",
+        "file:src/backend/backend_vulkan.cpp",
+        "file:src/backend/cpu/activation.cpp",
+        "file:src/backend/cpu/arithmetic.cpp",
+        "file:src/backend/cpu/attention.cpp",
+        "file:src/backend/cpu/embedding.cpp",
+        "file:src/backend/cpu/linear.cpp",
+        "file:src/backend/cpu/memcpy.cpp",
+        "file:src/backend/cpu/normalization.cpp",
+        "file:src/backend/cpu/rope.cpp",
+        "file:src/backend/cpu/shape.cpp",
+        "file:src/backend/cuda/activation.cu",
+        "file:src/backend/cuda/arithmetic.cu",
+        "file:src/backend/cuda/attention.cu",
+        "file:src/backend/cuda/linear.cu",
+        "file:src/backend/cuda/memcpy.cu",
+        "file:src/backend/cuda/normalization.cu",
+        "file:src/backend/cuda/rope.cu",
+        "file:src/backend/cuda/shape.cu",
+        "file:src/backend/vulkan/activation.cpp",
+        "file:src/backend/vulkan/arithmetic.cpp",
+        "file:src/backend/vulkan/attention.cpp",
+        "file:src/backend/vulkan/linear.cpp",
+        "file:src/backend/vulkan/memcpy.cpp",
+        "file:src/backend/vulkan/normalization.cpp",
+        "file:src/backend/vulkan/rope.cpp",
+        "file:src/backend/vulkan/shape.cpp"
+      ]
+    },
+    {
+      "id": "layer:model",
+      "name": "模型层",
+      "description": "LLM 模型架构定义与实现，包括 ModelBase 抽象基类与 ModelFactory 工厂、OpFactory 算子 DSL（RoPE 缓存、线性层推断）、Qwen3（GQA 架构）和 Qwen3.5（混合注意力架构）的配置解析与计算图构建。",
+      "nodeIds": [
+        "file:include/model/model.h",
+        "file:include/model/op_factory.hpp",
+        "file:include/model/Qwen3.hpp",
+        "file:include/model/Qwen35.hpp",
+        "file:src/model/model.cpp",
+        "file:src/model/Qwen3.cpp",
+        "file:src/model/Qwen35.cpp"
+      ]
+    },
+    {
+      "id": "layer:config",
+      "name": "配置与构建层",
+      "description": "CMake 构建系统配置，定义 CPU/CUDA/Vulkan 多后端编译选项、C++23 标准要求、源文件收集规则、库链接和安装分发策略。",
+      "nodeIds": [
+        "config:CMakeLists.txt",
+        "config:cmake/Genllm.cmake.in"
+      ]
+    },
+    {
+      "id": "layer:test",
+      "name": "测试与工具层",
+      "description": "集成测试与性能基准，包括基础流程冒烟测试、命令行交互式推理客户端（支持温度/top-p 采样参数配置）和 prefill/decode 吞吐量基准测试。",
+      "nodeIds": [
+        "file:tests/main.cpp",
+        "file:tests/genllm-cli.cpp",
+        "file:tests/benchmark.cpp"
+      ]
+    },
+    {
+      "id": "layer:reference",
+      "name": "Python 参考实现层",
+      "description": "PyTorch 参考实现与交叉验证工具，包含 Qwen3 模型的纯 Python 实现、GGUF 权重加载器、算子库（embedding/RMSNorm/RoPE/attention）以及 GGUF 解析和 HuggingFace 权重转换的测试脚本，用于与 C++ 推理引擎进行数值对比验证。",
+      "nodeIds": [
+        "file:shell/gguf.py",
+        "file:shell/model.py",
+        "file:shell/ops.py",
+        "file:shell/test_gguf.py",
+        "file:shell/test_hf.py"
+      ]
+    },
+    {
+      "id": "layer:documentation",
+      "name": "文档与资源层",
+      "description": "项目文档与 GPU 着色器资源，包括项目总览 README、系列教程规划文档和 Vulkan compute shader 源码。",
+      "nodeIds": [
+        "document:README.md",
+        "document:docs/series_plan.md",
+        "file:shader/add_f32.comp"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "项目总览",
+      "description": "README.md 是理解 Genllm 的起点。它介绍了框架的核心特性——GGUF 模型解析、DAG 计算图 IR、分页注意力机制、双层内存池和多后端自动调度，列出了支持的 Qwen3 模型规格和 CPU/CUDA 后端的实现状态，并提供了构建方法和项目目录结构。先通读 README，建立全局认知，再进入代码细节。",
+      "nodeIds": [
+        "document:README.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "集成测试入口",
+      "description": "tests/main.cpp 是项目的主入口文件，验证完整的推理流程：加载 GGUF 模型、构建计算图、分配权重、执行 tokenize 和文本生成。通过阅读此文件，你可以看到框架各核心组件（GGUFParser、ModelFactory、ComputeGraph、Executor）如何协同工作，形成一条从模型加载到文本输出的完整链路。这也是 BFS 遍历的起点，后续步骤将沿着依赖关系逐步展开。",
+      "nodeIds": [
+        "file:tests/main.cpp"
+      ],
+      "languageLesson": "C++ 的 RAII（Resource Acquisition Is Initialization）模式确保资源在作用域结束时自动释放。本项目中 MemoryManager、Executor 等对象均采用此模式，无需手动管理内存生命周期。"
+    },
+    {
+      "order": 3,
+      "title": "类型基础设施",
+      "description": "整个框架的类型系统建立在 utils.hpp 之上。它定义了 DataType、OperationType、Device、ModelArch 等核心枚举，以及 data_type_size() 字节大小查询函数。tensor.hpp 在此之上定义了 Tensor 数据结构——计算图中的基本单元，包含数据指针、维度、数据类型、操作类型、设备信息和层标识。bfloat16.hpp 和 float16.hpp 则提供了 BF16/FP16 半精度浮点的软件实现，是量化推理的基础。这些文件被全项目 34+ 个文件依赖，是理解一切的前提。",
+      "nodeIds": [
+        "file:include/utils/utils.hpp",
+        "file:include/core/tensor.hpp",
+        "file:include/utils/bfloat16.hpp"
+      ],
+      "languageLesson": "C++23 的 enum class 提供强类型枚举，避免隐式转换。本项目用它定义 DataType、Device 等类型安全的枚举。dtype_traits.hpp 则通过模板特化实现编译期和运行期的类型分发（dtype::dispatch），在不同数据类型间切换算子实现。"
+    },
+    {
+      "order": 4,
+      "title": "GGUF 模型解析",
+      "description": "GGUFParser 是模型进入框架的大门。它解析 GGUF v3 二进制文件，提取模型元数据（架构名称、层数、头数等参数）和张量信息（名称、形状、数据类型、偏移量）。gguf_parser.h 定义了 TensorInfo、GGUFInfo、GGUFParser 三个核心类，gguf_parser.cpp 实现了完整的反序列化逻辑，支持 int8/16/32/64、float32/64、string、array 等多种数据类型。Tokenizer 也从 GGUF 文件加载词表，实现 BPE 编解码。",
+      "nodeIds": [
+        "file:include/core/gguf_parser.h",
+        "file:include/core/tokenizer.h"
+      ],
+      "languageLesson": "GGUF 是一种紧凑的二进制格式，用魔数 + 版本号 + 元数据键值对 + 张量信息表的结构组织模型数据。解析时需要注意字节对齐和大小端序，本项目使用 nlohmann/json（json.hpp）辅助处理元数据中的嵌套结构。"
+    },
+    {
+      "order": 5,
+      "title": "DAG 计算图 IR",
+      "description": "ComputeGraph 是推理引擎的中间表示层。它以 Tensor 为节点、操作依赖为边构建 DAG（有向无环图），通过拓扑排序确定执行顺序，支持按层分组以适配多设备调度。graph.cpp 实现了拓扑排序和 DOT 格式可视化导出，可以将计算图渲染为图片便于调试。这是从「模型定义」到「实际执行」的桥梁。",
+      "nodeIds": [
+        "file:include/core/graph.h"
+      ],
+      "languageLesson": "DAG 拓扑排序的经典算法是 Kahn 算法（入度法）或 DFS 后序反转。本项目使用 BFS 反向收集（BFS reverse collection）实现，从输出节点反向遍历收集依赖顺序，确保所有输入在消费前已完成计算。"
+    },
+    {
+      "order": 6,
+      "title": "模型抽象与图构建",
+      "description": "ModelBase 定义了模型的抽象接口，ModelFactory 提供工厂模式按架构名称自动创建模型实例。OpFactory 是图构建 DSL 的核心，提供 RoPE 缓存预计算、线性层输出推断等静态方法。Qwen3 模型实现展示了完整的图构建流程：从 GGUF 元数据读取配置，通过 OpFactory 构建 embedding、Transformer 层（含 GQA 注意力）和 lm_head 的计算图。模型工厂注册机制（model.cpp 的静态初始化器）使得新模型只需实现 ModelBase 并注册即可使用。",
+      "nodeIds": [
+        "file:include/model/model.h",
+        "file:include/model/op_factory.hpp",
+        "file:include/model/Qwen3.hpp"
+      ],
+      "languageLesson": "工厂模式（Factory Pattern）通过注册表将架构名称映射到创建函数，实现运行时多态。本项目用静态初始化器在 main() 之前完成注册，避免手动维护 if-else 链。GQA（Grouped-Query Attention）让多个 query head 共享同一组 KV head，在减少 KV cache 内存的同时保持模型质量。"
+    },
+    {
+      "order": 7,
+      "title": "推理执行引擎",
+      "description": "Executor 是推理的指挥中心。它协调整个前向计算流程：按拓扑序遍历计算图节点，通过 kernel dispatch 将每个操作分发到对应设备的后端实现，管理 prefill（并行处理 prompt）和 decode（逐 token 生成）两阶段推理，并实现 argmax 和 top-p 采样策略。executor.cpp 是框架中 fan-out 最高的文件之一（12 个依赖），体现了它作为运行时核心的枢纽地位。",
+      "nodeIds": [
+        "file:include/core/executor.h",
+        "file:include/core/kernels.h"
+      ],
+      "languageLesson": "Prefill 阶段并行处理整个 prompt 序列，计算量大但只需一次；Decode 阶段逐 token 自回归生成，每步只计算一个 token 但需反复调用。两阶段的计算特征差异很大，框架通过分页注意力机制优化 decode 阶段的 KV cache 管理。"
+    },
+    {
+      "order": 8,
+      "title": "调度器与线程池",
+      "description": "GraphScheduler 负责将计算图的 DAG 节点按层分配到不同设备（CPU/CUDA），估算各层计算成本，统一权重设备，并在跨设备边界自动插入 copy 边。它与 MemoryManager 协作创建内存池和初始化 KV 缓存。ThreadPool 提供任务并行化支持，使用条件变量实现工作线程的高效唤醒。这两个组件共同构成了从「逻辑计算图」到「物理设备执行」的调度层。",
+      "nodeIds": [
+        "file:include/core/scheduler.h",
+        "file:include/core/thread_pool.h"
+      ],
+      "languageLesson": "线程池通过预创建工作线程避免频繁创建/销毁线程的开销。条件变量（std::condition_variable）配合互斥锁实现生产者-消费者模式：任务提交时唤醒空闲线程，无任务时线程挂起等待，比忙等（busy-waiting）节省 CPU 资源。"
+    },
+    {
+      "order": 9,
+      "title": "内存管理与分页注意力",
+      "description": "MemoryManager 统一管理多设备的权重池、激活池和 KV cache 池，实现双层内存池架构。MemoryPool 提供线性分配器式的内存管理，支持对齐分配和使用量统计。IMemoryResource 接口抽象了 CPU/CUDA/Vulkan 三种内存后端。PagedAttentionManager 实现分页注意力机制——将 KV cache 切分为固定大小的物理块（PAGE_BLOCK_SIZE=16），按需分配和回收，避免长序列推理时的内存碎片问题。",
+      "nodeIds": [
+        "file:include/core/manager.h",
+        "file:include/core/pools.h",
+        "file:include/core/page_attention.h"
+      ],
+      "languageLesson": "分页注意力（Paged Attention）借鉴操作系统的虚拟内存思想：将 KV cache 逻辑上连续的序列映射到物理上不连续的固定大小块中。这样每个请求只需预分配少量块，随着生成长度增长动态追加，避免了预分配最大长度带来的内存浪费。"
+    },
+    {
+      "order": 10,
+      "title": "CPU/CUDA 算子后端",
+      "description": "BackendRegistry 单例管理 CPU/CUDA/Vulkan 三后端的注册与查询，BackendProvider 接口统一了设备信息查询。CPU 后端的算子实现覆盖了 LLM 推理所需的全部操作——线性层使用 AVX2 SIMD 指令集优化矩阵乘法，注意力机制支持标准 Attention、FlashAttention 和 PagedAttention 三种模式。CUDA 后端的 kernel 实现利用 GPU 共享内存和 warp 级原语实现高性能计算。Vulkan 后端目前以桩实现为主，算术运算已通过 compute shader 完成验证。",
+      "nodeIds": [
+        "file:include/backend/backend.h",
+        "file:src/backend/cpu/linear.cpp",
+        "file:src/backend/cuda/attention.cu"
+      ],
+      "languageLesson": "AVX2 是 x86 的 SIMD（单指令多数据）指令集，一条指令可同时处理 8 个 float32。CPU 线性层通过 AVX2 实现向量化的矩阵乘法内循环，将 FP16/BF16 权重加载到 256-bit 寄存器后做融合乘加（FMA），显著提升 CPU 推理吞吐。"
+    },
+    {
+      "order": 11,
+      "title": "CMake 构建系统",
+      "description": "CMakeLists.txt 定义了项目的完整构建配置：要求 C++23 标准，通过 BACKEND_CPU/BACKEND_CUDA/BACKEND_SYCL/BACKEND_VULKAN 选项控制多后端编译，收集源文件并链接对应库。Genllm.cmake.in 是安装后的包配置模板，导出公共头文件目录和库目标供下游项目使用。构建系统是理解项目如何从源码变成可执行程序的关键。",
+      "nodeIds": [
+        "config:CMakeLists.txt"
+      ],
+      "languageLesson": "CMake 的 option() 命令定义布尔编译选项，配合 if() 和 target_compile_definitions() 控制条件编译。本项目用 BACKEND_CUDA 等选项决定是否编译 .cu 文件和链接 CUDA 库，实现同一代码库支持纯 CPU 和 GPU 加速两种构建。"
+    },
+    {
+      "order": 12,
+      "title": "测试工具与 Python 参考实现",
+      "description": "tests/genllm-cli.cpp 提供命令行交互式推理客户端，支持温度、top-p 采样参数配置；tests/benchmark.cpp 测量 prefill/decode 吞吐量。shell/ 目录下的 Python 参考实现（model.py、ops.py、gguf.py）用 PyTorch 重写了完整的 Qwen3 推理流程，用于与 C++ 引擎进行数值对比验证。这种「双实现交叉验证」的开发模式确保了 C++ 推理结果的正确性。",
+      "nodeIds": [
+        "file:tests/genllm-cli.cpp",
+        "file:shell/model.py",
+        "file:shell/ops.py"
+      ],
+      "languageLesson": "交叉验证（Cross-Validation）是数值计算项目的常见实践：用一种已验证的实现（PyTorch）作为基准，对比新实现（C++）的输出。通过逐层比对中间结果（embedding、attention、FFN），可以精确定位数值偏差来源。"
+    }
+  ]
+}
