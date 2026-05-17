@@ -169,6 +169,9 @@ static struct VulkanBackendProviderRegistrar {
         instance.registerOp("linear_f16",  vkspv::linear_f16_spv,  vkspv::linear_f16_spv_len,  3, sizeof(ops::LinearPushConstants));
         instance.registerOp("linear_bf16", vkspv::linear_bf16_spv, vkspv::linear_bf16_spv_len, 3, sizeof(ops::LinearPushConstants));
         instance.registerOp("linear_f32",  vkspv::linear_f32_spv,  vkspv::linear_f32_spv_len,  3, sizeof(ops::LinearPushConstants));
+        instance.registerOp("linear_gemv_f16",  vkspv::linear_gemv_f16_spv,  vkspv::linear_gemv_f16_spv_len,  3, sizeof(ops::LinearPushConstants));
+        instance.registerOp("linear_gemv_bf16", vkspv::linear_gemv_bf16_spv, vkspv::linear_gemv_bf16_spv_len, 3, sizeof(ops::LinearPushConstants));
+        instance.registerOp("linear_gemv_f32",  vkspv::linear_gemv_f32_spv,  vkspv::linear_gemv_f32_spv_len,  3, sizeof(ops::LinearPushConstants));
 
         // --- RMS Norm ---
         instance.registerOp("rms_norm_f16",  vkspv::rms_norm_f16_spv,  vkspv::rms_norm_f16_spv_len,  3, sizeof(ops::NormPushConstants));
