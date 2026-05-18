@@ -16,17 +16,17 @@
 
 | 模型 | 参数量 | 层数 | 隐藏维度 | 头数/KV头 | 推理状态 |
 |------|--------|------|----------|-----------|---------|
-| Qwen3-0.6B | 0.6B | 28 | 1024 | 16/8 | ✅ CPU + CUDA |
-| Qwen3-1.7B | 1.7B | 28 | 2048 | 16/8 | ✅ CPU + CUDA |
-| Qwen3-4B | 4B | 36 | 2560 | 32/8 | ✅ CPU + CUDA |
+| Qwen3-0.6B | 0.6B | 28 | 1024 | 16/8 | ✅ CPU + CUDA + Vulkan |
+| Qwen3-1.7B | 1.7B | 28 | 2048 | 16/8 | ✅ CPU + CUDA + Vulkan |
+| Qwen3-4B | 4B | 36 | 2560 | 32/8 | ✅ CPU + CUDA + Vulkan |
 
 ## 后端
 
 | 后端 | 状态 | 已实现算子 |
 |------|------|-----------|
 | CPU | ✅ 完成 | linear, rms_norm, add/mul, silu, apply_rope, softmax, embedding, attention, reshape, permute, memcpy |
-| CUDA | ✅ 完成 | 同上全部 + paged attention (cuBLAS GEMM) |
-| Vulkan | 🚧 开发中 | add/sub/mul/div (f16/f32/bf16) |
+| CUDA | ✅ 完成 | 同上全部 + paged/flash attention (cuBLAS GEMM) |
+| Vulkan | ✅ 完成 | 同上全部 + paged/flash attention (GLSL compute shaders) |
 | SYCL | 🔜 计划 | — |
 
 ## 构建统一脚本
@@ -89,22 +89,40 @@ Genllm/
 │   ├── backend/vulkan/    # Vulkan 算子实现
 │   └── model/             # Qwen3 图构建, 模型工厂
 ├── shader/                # GLSL compute shaders
-│   ├── add/               # add_f32.comp, add_bf16.comp, add_f16.comp
-│   ├── sub/               # ...
-│   ├── mul/
-│   └── div/
+│   ├── add/               # 逐元素加
+│   ├── sub/               # 逐元素减
+│   ├── mul/               # 逐元素乘
+│   ├── div/               # 逐元素除
+│   ├── linear/            # 矩阵乘法 (cooperative matrix + warp-level GEMV)
+│   ├── rms_norm/          # RMS 层归一化
+│   ├── layer_norm/        # Layer 层归一化
+│   ├── silu/              # SiLU 激活
+│   ├── gelu/              # GELU 激活
+│   ├── relu/              # ReLU 激活
+│   ├── rope/              # RoPE 位置编码
+│   ├── permute/           # 维度重排
+│   ├── attention/         # 缩放点积注意力 + 分页注意力 FlashAttention
 ├── build.py               # 统一构建脚本
 ├── tests/                 # 测试入口
 ├── cmake/                 # CMake 包配置
 └── models/                # 模型文件 (.gguf)
 ```
 
+## 性能
+
+Vulkan 后端在 decode 阶段使用 warp-level GEMV（非 cooperative matrix），
+在 RTX 4070 Ti SUPER 上的 benchmark 结果：
+
+| 模型 | 后端 | tokens/s |
+|------|------|:--------:|
+| Qwen3-0.6B | Vulkan | ~44 |
+| Qwen3-4B   | Vulkan | ~24 |
+
 ## 当前限制
 
 - 仅支持 batch=1 推理
 - CUDA 后端需要 `CUDA_LAUNCH_BLOCKING=1` 或 per-tensor `cudaDeviceSynchronize()` 保证激活池复用正确性
-- Vulkan 后端仅有算子骨架，大部分算子尚未实现
-- 仅实现 Qwen3 架构（模型工厂可扩展）
+- 仅实现 Qwen3/Qwen3.5 架构（模型工厂可扩展）
 
 ## License
 
