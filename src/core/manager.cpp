@@ -163,8 +163,9 @@ void MemoryManager::load_weights(GGUFParser& parser, const ComputeGraph& graph) 
 
         for (auto& entry : gpu_weights) {
             if (entry.tensor->device != Device::CUDA) continue;
+            int32_t dev_id = this->get_layer_device(entry.tensor->layer_id);
             size_t size = entry.tensor->bytes();
-            DevicePools* pools = this->get(entry.tensor->device, 0);
+            DevicePools* pools = this->get(entry.tensor->device, dev_id);
             if (!pools || !pools->weight) {
                 throw std::runtime_error(std::format("load_weights: no weight pool for {} tensor {}",device_to_string(entry.tensor->device), entry.tensor->name));
             }
@@ -180,7 +181,6 @@ void MemoryManager::load_weights(GGUFParser& parser, const ComputeGraph& graph) 
 #ifdef BACKEND_VULKAN
     if (!gpu_weights.empty()) {
         auto& ctx = VulkanContext::get();
-
         // 直接遍历 gpu_weights，每个权重独立 submit（staging buffer 不能跨权重复用）
         for (auto& entry : gpu_weights) {
             if (entry.tensor->device != Device::VULKAN) continue;

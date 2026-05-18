@@ -82,5 +82,5 @@ public:
 
 private:
     MemoryPool* pool_ = nullptr;
-    std::map<int32_t, LayerState> layers_;
+    std::map<int32_t, LayerState> layers_; // layer_id -> LayerState
 };

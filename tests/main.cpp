@@ -11,15 +11,13 @@ int main() {
 
     DeviceManager::instance().print_devices();
 
-    GGUFParser parser("models/Qwen3-4B-BF16.gguf");
+    GGUFParser parser("models/Qwen3-0.6B-BF16.gguf");
 
     // parser.info().print_info();
 
     std::unique_ptr<ModelBase> model = ModelFactory::CreateFromGGUF(parser.info());
 
     auto graph = model->build_graph(parser.info()); // 目前是batch固定1，seq_len动态的。
-
-    // graph->export_dot("qwen3-graph.dot");
 
     GraphScheduler::Config sched_cfg{
         .vocab_size = model->vocab_size(),
@@ -39,14 +37,13 @@ int main() {
 
     std::unique_ptr<MemoryManager>& manager = scheduler.mmanager();
 
-    manager->load_weights(parser, scheduler.graph());
-
+    manager->load_weights(parser, scheduler.graph()); // 加载权重
 
     Executor executor(scheduler);
 
     Tokenizer tokenizer = Tokenizer::from_gguf(parser);
 
-    const std::string user_msg = "Hello World";
+    const std::string user_msg = "中国首都是哪里？";
 
     std::vector<int32_t> prompt = tokenizer.encode(user_msg);
     std::println("Prompt: {}", prompt);

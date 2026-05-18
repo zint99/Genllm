@@ -21,11 +21,14 @@ private:
         }
     };
     bool lock_memory_ = false;
+    // cpu --> pool
+    // gpu0 --> pool
+    // gpu1 --> pool
+    // ....
     std::map<DevKey, DevicePools> devices_;
     std::unordered_map<int32_t, int32_t> layer_dev_id_; // layer_id → dev_id
     std::map<DevKey, std::unique_ptr<PagedAttentionManager>> attention_managers_;
 
-    
     std::unique_ptr<IMemoryResource> make_resource(Device dev, size_t dev_id);
 public:
     MemoryManager();

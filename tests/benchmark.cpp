@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
 
         // Benchmark
         double t0 = now_sec();
-        auto output = executor.generate(prompt_ids, gen_tokens, tokenizer.eos_id(), nullptr);
+        auto output = executor.generate(prompt_ids, gen_tokens, tokenizer.eos_id(),nullptr);
         
         double elapsed_ms = (now_sec() - t0) * 1000.0;
 
