@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────── CPU ────────────────────────────
+  cpu:
+    name: CPU build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Configure (CPU)
+        run: cmake -B build -G Ninja -DBACKEND_CPU=ON -DBUILD_TEST=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Run unit tests
+        run: |
+          cd build
+          for t in bin/test_dtype bin/test_tensor bin/test_page_attention bin/test_ops_cpu; do
+            if [ -f "$t" ]; then
+              echo "--- Running $t ---"
+              $t && echo "exit: $?" || { echo "FAILED: $t"; exit 1; }
+            fi
+          done
+
+  # ──────────────────────────── Vulkan ────────────────────────────
+  vulkan:
+    name: Vulkan build + shader compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.3.290.0
+          cache: true
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Compile shaders
+        run: python build.py --shader
+
+      - name: Configure (Vulkan)
+        run: cmake -B build -G Ninja -DBACKEND_CPU=ON -DBACKEND_VULKAN=ON -DBUILD_TEST=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Run CPU tests (Vulkan lib linked)
+        run: |
+          cd build
+          for t in bin/test_dtype bin/test_tensor bin/test_page_attention; do
+            if [ -f "$t" ]; then
+              echo "--- Running $t ---"
+              $t && echo "exit: $?" || { echo "FAILED: $t"; exit 1; }
+            fi
+          done
+
+  # ──────────────────────────── CUDA ────────────────────────────
+  cuda:
+    name: CUDA build only
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.22
+        with:
+          cuda: "12.8"
+          method: network
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Configure (CUDA)
+        run: cmake -B build -G Ninja -DBACKEND_CPU=ON -DBACKEND_CUDA=ON -DBUILD_TEST=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
