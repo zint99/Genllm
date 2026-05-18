@@ -86,9 +86,8 @@ void PagedAttentionManager::reserve_layer(int32_t layer_id, int32_t max_blocks) 
     size_t block_bytes = static_cast<size_t>(PAGE_BLOCK_SIZE) * state.n_kv_heads * state.head_dim * data_type_size(state.dtype);
     size_t total_bytes = static_cast<size_t>(max_blocks) * block_bytes;
 
-    MemoryBlock k_block = pool_->allocate(total_bytes, 64);
-    MemoryBlock v_block = pool_->allocate(total_bytes, 64);
-
+    MemoryBlock k_block = pool_->allocate(total_bytes, 32);
+    MemoryBlock v_block = pool_->allocate(total_bytes, 32);
 
     size_t dh = pool_->device_handle();
     state.k_pool = BlockPool(k_block.ptr, total_bytes, max_blocks, state.n_kv_heads, state.head_dim, state.dtype, dh);
@@ -112,7 +111,7 @@ void PagedAttentionManager::append_kv_from_tensor(
     size_t head_stride_bytes = static_cast<size_t>(Skv) * head_dim * elem_size;
     int32_t prev_cached = state.num_cached;
 
-    append_kv_pages(layer_id, Skv);
+    this->append_kv_pages(layer_id, Skv);
 
     for (int32_t p = 0; p < Skv; ++p) {
         int32_t global_pos = prev_cached + p;

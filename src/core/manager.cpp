@@ -50,7 +50,9 @@ DevicePools& MemoryManager::get_or_create(
 {
     DevKey key{dev, dev_id};
     auto it = devices_.find(key);
+
     if (it != devices_.end()) return it->second;
+
     DevicePools pools;
 
     if (weight_cap > 0) {
@@ -157,7 +159,7 @@ void MemoryManager::load_weights(GGUFParser& parser, const ComputeGraph& graph) 
         size_t max_weight = 0;
         for (auto& e : gpu_weights)
             if (e.tensor->device == Device::CUDA) max_weight = std::max(max_weight, e.tensor->bytes());
-        std::vector<char> staging(max_weight);
+        std::vector<std::byte> staging(max_weight);
 
         for (auto& entry : gpu_weights) {
             if (entry.tensor->device != Device::CUDA) continue;

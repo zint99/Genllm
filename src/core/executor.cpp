@@ -430,7 +430,7 @@ void Executor::allocate_output(Tensor* t,int32_t dev_id ) {
     if (nbytes == 0) {
         throw std::runtime_error(std::format("Executor: tensor '{}' has 0 bytes (unresolved dims?)", t->name));
     }
-    MemoryBlock block = pool->allocate(nbytes, 64);
+    MemoryBlock block = pool->allocate(nbytes,32);
     t->data = block.ptr;
     t->offset = block.offset;
     t->device_handle = block.device_handle;

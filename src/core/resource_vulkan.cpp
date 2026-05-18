@@ -7,7 +7,7 @@
 #include <format>
 
 VulkanMemoryResource::VulkanMemoryResource(int device_id)
-    : device_id_(device_id)
+    : device_id_(device_id),lock_memory_(false)
 {
     auto& ctx = VulkanContext::get();
     device_ = ctx.device(device_id_);

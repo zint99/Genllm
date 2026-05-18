@@ -11,7 +11,7 @@ int main() {
 
     DeviceManager::instance().print_devices();
 
-    GGUFParser parser("models/Qwen3-0.6B-BF16.gguf");
+    GGUFParser parser("models/Qwen3-4B-BF16.gguf");
 
     // parser.info().print_info();
 

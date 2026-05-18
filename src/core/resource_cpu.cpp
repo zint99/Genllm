@@ -13,7 +13,7 @@
 #include "core/resource.h"
 
 
-void* CpuMemoryResource::allocate(size_t size, size_t alignment = 8) {
+void* CpuMemoryResource::allocate(size_t size, size_t alignment = 32) {
     if (size == 0) return nullptr;
 
     void* ptr = nullptr;
