@@ -5,9 +5,7 @@
 namespace ops {
 
     template <Device D> struct SoftmaxImpl;
-    template <Device D> struct DiagMaskInfImpl;
-    template <Device D> struct SdpaImpl;
-    template <Device D> struct AttentionImpl;
+    template <Device D> struct PagedAttentionImpl;
     template <Device D> struct FlashAttentionImpl;
 
     template <>
@@ -16,17 +14,7 @@ namespace ops {
     };
 
     template <>
-    struct DiagMaskInfImpl<Device::CUDA> {
-        static void execute(Tensor* out, int32_t dev_id);
-    };
-
-    template <>
-    struct SdpaImpl<Device::CUDA> {
-        static void execute(Tensor* out, int32_t dev_id);
-    };
-
-    template <>
-    struct AttentionImpl<Device::CUDA> {
+    struct PagedAttentionImpl<Device::CUDA> {
         static void execute(Tensor* out, int32_t dev_id);
     };
 
@@ -36,9 +24,7 @@ namespace ops {
     };
 
     extern template struct SoftmaxImpl<Device::CUDA>;
-    extern template struct DiagMaskInfImpl<Device::CUDA>;
-    extern template struct SdpaImpl<Device::CUDA>;
-    extern template struct AttentionImpl<Device::CUDA>;
+    extern template struct PagedAttentionImpl<Device::CUDA>;
     extern template struct FlashAttentionImpl<Device::CUDA>;
 
 }

@@ -35,23 +35,8 @@ namespace ops {
         });
     }
 
-    void DiagMaskInfImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
-        const Tensor* x = out->src[0];
-        int64_t seq = x->dims[0];
-        dtype::dispatch(out->dtype, [&]<DataType D>() {
-            using T = dtype::type_t<D>;
-            const T* px = static_cast<const T*>(x->data);
-            T*       po = static_cast<T*>(out->data);
-            for (int64_t i = 0; i < seq; ++i) {
-                for (int64_t j = 0; j < seq; ++j) {
-                    float fx = dtype::to_f32<D>(px[i * seq + j]);
-                    po[i * seq + j] = dtype::from_f32<D>(j > i ? -std::numeric_limits<float>::infinity() : fx);
-                }
-            }
-        });
-    }
+    void PagedAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
 
-    void AttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
         const Tensor* Q = out->src[0];  // [batch, num_heads, seq_len_q, head_dim]      ,[1,16,4,128]
         const Tensor* K = out->src[1];  // [batch, num_kv_heads, seq_len_kv, head_dim]  ,[1,8,4,128]
         const Tensor* V = out->src[2];  // [batch, num_kv_heads, seq_len_kv, head_dim]  ,[1,8,4,128]
@@ -143,32 +128,39 @@ namespace ops {
         });
     }
 
-    void SdpaImpl<Device::CPU>::execute(Tensor* out,int32_t dev_id) {
+    void FlashAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
         auto* mgr = g_mem_manager->get_attention_manager(out->device,0);
 
-        if (mgr && mgr->is_active(out->layer_id)) {
-            FlashAttentionImpl<Device::CPU>::execute(out,dev_id);
-        } else {
-            AttentionImpl<Device::CPU>::execute(out,dev_id);
+        int32_t layer_id = out->layer_id;
+        if (!mgr || !mgr->is_active(layer_id)) return;
+
+        Tensor* Q = out->src[0];
+        Tensor* K = out->src[1];
+        Tensor* V = out->src[2];
+
+        int32_t B = static_cast<int32_t>(Q->dims[0]);
+        int32_t n_heads = static_cast<int32_t>(Q->dims[1]);
+        int32_t Sq = static_cast<int32_t>(Q->dims[2]);
+        int32_t head_dim = static_cast<int32_t>(Q->dims[3]);
+        int32_t n_kv_heads = static_cast<int32_t>(K->dims[1]);
+        int32_t Skv = static_cast<int32_t>(K->dims[2]);
+        int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
+        float scale = out->op_params[1];
+        bool causal = static_cast<int32_t>(out->op_params[2]) != 0;
+
+        auto& layer = mgr->get_layer(layer_id);
+
+        if (Skv > 0) {
+            // 保存KV到缓存池里面
+            mgr->append_kv_from_tensor(layer_id, K->data, V->data,n_kv_heads, Skv, head_dim, K->dtype);
         }
-    }
-    void cpu_paged_attention(
-        void* out,
-        const void* Q,
-        int32_t B, int32_t n_heads, int32_t Sq,
-        int32_t n_kv_heads, int32_t num_kv_groups,
-        int32_t head_dim,
-        float scale,
-        bool causal,
-        DataType dtype,
-        const PagedAttentionManager::LayerState& layer
-    ) {
+
         if (!layer.active || layer.page_table.empty()) return;
 
         int32_t total_cached = layer.num_cached;
         int32_t num_blocks = static_cast<int32_t>(layer.page_table.size());
         int32_t block_size = PAGE_BLOCK_SIZE;
-        size_t elem_size = data_type_size(dtype);
+        size_t elem_size = data_type_size(Q->dtype);
         bool apply_causal = causal;
 
         for (int32_t b = 0; b < B; ++b) {
@@ -201,10 +193,10 @@ namespace ops {
                             size_t kv_off = (static_cast<size_t>(pos_in_blk) * n_kv_heads + kv_h) * head_dim;
                             float score = 0.0f;
                             for (int32_t d = 0; d < head_dim; ++d) {
-                                float qv = dtype::to_f32_rt(dtype,
-                                    static_cast<const uint8_t*>(Q)
+                                float qv = dtype::to_f32_rt(Q->dtype,
+                                    static_cast<const uint8_t*>(Q->data)
                                     + (((static_cast<size_t>(b) * n_heads + h) * Sq + sq) * head_dim + d) * elem_size);
-                                float kv = dtype::to_f32_rt(dtype, k_ptr + (kv_off + d) * elem_size);
+                                float kv = dtype::to_f32_rt(Q->dtype, k_ptr + (kv_off + d) * elem_size);
                                 score += qv * kv;
                             }
                             score *= scale;
@@ -215,7 +207,7 @@ namespace ops {
                             float exp_prev = std::exp(m_prev - m);
 
                             for (int32_t d = 0; d < head_dim; ++d) {
-                                float vv = dtype::to_f32_rt(dtype, v_ptr + (kv_off + d) * elem_size);
+                                float vv = dtype::to_f32_rt(Q->dtype, v_ptr + (kv_off + d) * elem_size);
                                 o[d] = o[d] * exp_prev + exp_score * vv;
                             }
                             l = l * exp_prev + exp_score;
@@ -224,52 +216,16 @@ namespace ops {
 
                     float inv_l = 1.0f / l;
                     for (int32_t d = 0; d < head_dim; ++d) {
-                        uint8_t* out_ptr = static_cast<uint8_t*>(out)
+                        uint8_t* out_ptr = static_cast<uint8_t*>(out->data)
                             + (((static_cast<size_t>(b) * n_heads + h) * Sq + sq) * head_dim + d) * elem_size;
-                        dtype::from_f32_rt(dtype, o[d] * inv_l, out_ptr);
+                        dtype::from_f32_rt(Q->dtype, o[d] * inv_l, out_ptr);
                     }
                 }
             }
         }
     }
 
-    void FlashAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
-        auto* mgr = g_mem_manager->get_attention_manager(out->device,0);
-
-        int32_t layer_id = out->layer_id;
-        if (!mgr || !mgr->is_active(layer_id)) return;
-
-        Tensor* Q = out->src[0];
-        Tensor* K = out->src[1];
-        Tensor* V = out->src[2];
-
-        int32_t B = static_cast<int32_t>(Q->dims[0]);
-        int32_t n_heads = static_cast<int32_t>(Q->dims[1]);
-        int32_t Sq = static_cast<int32_t>(Q->dims[2]);
-        int32_t head_dim = static_cast<int32_t>(Q->dims[3]);
-        int32_t n_kv_heads = static_cast<int32_t>(K->dims[1]);
-        int32_t Skv = static_cast<int32_t>(K->dims[2]);
-        int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
-        float scale = out->op_params[1];
-        bool causal = static_cast<int32_t>(out->op_params[2]) != 0;
-
-        auto& layer = mgr->get_layer(layer_id);
-
-        if (Skv > 0) {
-            // 保存KV到缓存池里面
-            mgr->append_kv_from_tensor(layer_id, K->data, V->data,n_kv_heads, Skv, head_dim, K->dtype);
-        }
-
-        cpu_paged_attention(
-            out->data, Q->data, B, n_heads, Sq,
-            n_kv_heads, num_kv_groups, head_dim, scale,
-            causal, Q->dtype, layer
-        );
-    }
-
 template struct SoftmaxImpl<Device::CPU>;
-template struct DiagMaskInfImpl<Device::CPU>;
-template struct SdpaImpl<Device::CPU>;
-template struct AttentionImpl<Device::CPU>;
+template struct PagedAttentionImpl<Device::CPU>;
 template struct FlashAttentionImpl<Device::CPU>;
 }

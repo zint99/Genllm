@@ -413,7 +413,7 @@ struct OpFactory {
         throw std::runtime_error("repeat_kv not implemented yet");
     }
     //Scaled Dot-Product Attention
-    static Tensor* SDPA(
+    static Tensor* PagedAttention(
         Tensor* q_rope, 
         Tensor* k_rope, 
         Tensor* v_4d,
@@ -444,7 +444,7 @@ struct OpFactory {
         t->dtype = q_rope->dtype;
         t->layer_id = layer_id;
         t->type = TensorType::TENSOR_TYPE_ACTIVATION;
-        t->op_type = OperationType::OP_TYPE_SDPA;
+        t->op_type = OperationType::OP_TYPE_PAGED_ATTN;
         
         // 输出形状同 Q: [B, n_heads, S, head_dim]
         std::copy(q_rope->dims.begin(), q_rope->dims.end(), t->dims.begin());

@@ -63,7 +63,7 @@ std::vector<GraphScheduler::LayerCost> GraphScheduler::estimate_layer_costs(cons
         int32_t max_blocks = (config_.max_seq_len + PAGE_BLOCK_SIZE - 1) / PAGE_BLOCK_SIZE;
         for (const auto& [layer_id, tensors] : groups) {
             for (auto* t : tensors) {
-                if (t->op_type != OperationType::OP_TYPE_SDPA || !t->src[1]) continue;
+                if (t->op_type != OperationType::OP_TYPE_PAGED_ATTN || !t->src[1]) continue;
                 int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]);
                 int32_t head_dim   = static_cast<int32_t>(t->dims[3]);
                 size_t block_bytes = static_cast<size_t>(PAGE_BLOCK_SIZE) * n_kv_heads * head_dim * data_type_size(t->dtype);
@@ -363,7 +363,7 @@ void GraphScheduler::create_memory_pools(const std::unique_ptr<ComputeGraph>& gr
         // KV cache 池：累加该设备上所有层的 paged cache
         int32_t max_blocks = static_cast<int32_t>((config_.max_seq_len + PAGE_BLOCK_SIZE - 1) / PAGE_BLOCK_SIZE);
         for (auto* t : graph->get_all_tensors()) {
-            if (t->op_type != OperationType::OP_TYPE_SDPA || !t->src[1]) continue;
+            if (t->op_type != OperationType::OP_TYPE_PAGED_ATTN || !t->src[1]) continue;
             if (t->device != dev) continue;
             int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]);
             int32_t head_dim = static_cast<int32_t>(t->dims[3]);
@@ -414,7 +414,7 @@ void GraphScheduler::initialize_kv_cache() {
         
         for (int l = assign.start_layer; l <= assign.end_layer; ++l) {
             for (auto* t : this->graph().get_all_tensors()) {
-                if (t->op_type != OperationType::OP_TYPE_SDPA || !t->src[1]) continue;
+                if (t->op_type != OperationType::OP_TYPE_PAGED_ATTN || !t->src[1]) continue;
                 if (t->layer_id != l) continue;
 
                 int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]);

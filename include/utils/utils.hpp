@@ -99,7 +99,6 @@ enum class OperationType:uint8_t {
     OP_TYPE_GELU         ,
     OP_TYPE_SILU         ,
     OP_TYPE_RELU         ,
-    OP_TYPE_DIAG_MASK_INF,
     OP_TYPE_POOL_2D      ,
     OP_TYPE_UPSCALE      ,
     OP_TYPE_PAD          ,
@@ -108,14 +107,14 @@ enum class OperationType:uint8_t {
     OP_TYPE_EMBEDDING    ,
     OP_TYPE_LINEAR       ,
     OP_TYPE_APPLY_ROPE   ,
-    OP_TYPE_SDPA         ,
     OP_TYPE_TOKENIZE     ,
     OP_TYPE_ROPE_CACHE   ,
     OP_TYPE_CONV2D       ,
     OP_TYPE_FLASH_ATTN   ,
+    OP_TYPE_PAGED_ATTN   ,
     OP_TYPE_CAUSAL_CONV1D,
-    OP_TYPE_SSM_SCAN    ,
-    OP_TYPE_NARROW      ,
+    OP_TYPE_SSM_SCAN     ,
+    OP_TYPE_NARROW       ,
     OP_TYPE_SIGMOID
 };
 // 模型类型
@@ -217,7 +216,6 @@ inline std::string operation_type_to_string(OperationType op) {
         case OperationType::OP_TYPE_GELU:          return "GELU";
         case OperationType::OP_TYPE_SILU:          return "SiLU";
         case OperationType::OP_TYPE_RELU:          return "ReLU";
-        case OperationType::OP_TYPE_DIAG_MASK_INF: return "DiagMaskInf";
         case OperationType::OP_TYPE_POOL_2D:       return "Pool2D";
         case OperationType::OP_TYPE_UPSCALE:       return "Upscale";
         case OperationType::OP_TYPE_PAD:           return "Pad";
@@ -227,11 +225,11 @@ inline std::string operation_type_to_string(OperationType op) {
         case OperationType::OP_TYPE_EMBEDDING:     return "Embedding";
         case OperationType::OP_TYPE_LINEAR:        return "Linear";
         case OperationType::OP_TYPE_APPLY_ROPE:    return "Rope";
-        case OperationType::OP_TYPE_SDPA:          return "SDPA";
         case OperationType::OP_TYPE_TOKENIZE:      return "Tokenize";
         case OperationType::OP_TYPE_ROPE_CACHE:    return "RopeCache";
         case OperationType::OP_TYPE_CONV2D:        return "Conv2D";
         case OperationType::OP_TYPE_FLASH_ATTN:    return "FlashAttn";
+        case OperationType::OP_TYPE_PAGED_ATTN:    return "PagedAttn";
         case OperationType::OP_TYPE_CAUSAL_CONV1D: return "CausalConv1D";
         case OperationType::OP_TYPE_SSM_SCAN:      return "SSMScan";
         case OperationType::OP_TYPE_NARROW:        return "Narrow";

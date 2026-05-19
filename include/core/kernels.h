@@ -25,12 +25,12 @@ namespace kernel {
     OPS_API void gelu(Tensor* out, int32_t dev_id = 0);
     OPS_API void relu(Tensor* out, int32_t dev_id = 0);
     OPS_API void softmax(Tensor* out, int32_t dev_id = 0);
-    OPS_API void diag_mask_inf(Tensor* out, int32_t dev_id = 0);
     OPS_API void embedding(Tensor* out, int32_t dev_id = 0);
     OPS_API void apply_rope(Tensor* out, int32_t dev_id = 0);
-    OPS_API void sdpa(Tensor* out, int32_t dev_id = 0);
-    OPS_API void attention(Tensor* out, int32_t dev_id = 0);
-    OPS_API void flash_attention(Tensor* out, int32_t dev_id = 0);
+
+    OPS_API void paged_attention(Tensor* out, int32_t dev_id = 0); // flash attention + paged attention
+    OPS_API void flash_attention(Tensor* out, int32_t dev_id = 0); // only flash attention
+
     OPS_API void concat(Tensor* out, int32_t dev_id = 0);
     OPS_API void repeat(Tensor* out, int32_t dev_id = 0);
     OPS_API void memcpy(Tensor* out, int32_t dev_id = 0);

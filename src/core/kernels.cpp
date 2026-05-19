@@ -60,9 +60,7 @@ namespace kernel {
 
     // ===== attention =====
     void softmax(Tensor* t, int32_t dev_id)        { device::dispatchOp(t->device, [&]<Device D>() { ops::SoftmaxImpl<D>::execute(t, dev_id); }); }
-    void diag_mask_inf(Tensor* t, int32_t dev_id)  { device::dispatchOp(t->device, [&]<Device D>() { ops::DiagMaskInfImpl<D>::execute(t, dev_id); }); }
-    void sdpa(Tensor* t, int32_t dev_id)           { device::dispatchOp(t->device, [&]<Device D>() { ops::SdpaImpl<D>::execute(t, dev_id); }); }
-    void attention(Tensor* t, int32_t dev_id)      { device::dispatchOp(t->device, [&]<Device D>() { ops::AttentionImpl<D>::execute(t, dev_id); }); }
+    void paged_attention(Tensor* t, int32_t dev_id)      { device::dispatchOp(t->device, [&]<Device D>() { ops::PagedAttentionImpl<D>::execute(t, dev_id); }); }
     void flash_attention(Tensor* t, int32_t dev_id){ device::dispatchOp(t->device, [&]<Device D>() { ops::FlashAttentionImpl<D>::execute(t, dev_id); }); }
 
     // ===== embedding =====

@@ -1,7 +1,7 @@
 #version 460
 
 #extension GL_EXT_shader_explicit_arithmetic_types : require
-#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_bfloat16 : require
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_KHR_shader_subgroup_shuffle_relative : require
@@ -14,39 +14,39 @@ const int BLK = 16;
 layout(local_size_x = 128, local_size_y = 1) in;
 
 layout(push_constant) uniform P {
-    int B;
-    int n_heads;
-    int Sq;
-    int n_kv_heads;
-    int total_cached;
-    int num_blocks;
-    int num_kv_groups;
-    int head_dim;
-    float scale;
-    int causal;
-    int block_stride_elems;
-    int q_start;
+    int32_t batch;
+    int32_t seq_len;
+    int32_t num_q_heads;
+    int32_t num_kv_heads;
+    int32_t total_cached;
+    int32_t num_blocks;
+    int32_t num_kv_groups;
+    int32_t head_dim;
+    int32_t block_stride_elems;
+    int32_t q_start;
+    float   scale;      // = 1.0f / sqrtf(head_dim)
 } p;
 
-layout(std430, binding = 0) readonly buffer Qbuf  { float16_t Q[]; };
-layout(std430, binding = 1) buffer        Obuf  { float16_t O[]; };
+
+layout(std430, binding = 0) readonly buffer Qbuf  { bfloat16_t Q[]; };
+layout(std430, binding = 1) writeonly buffer Obuf  { bfloat16_t O[]; };
 layout(std430, binding = 2) readonly buffer PageK { int k_ids[]; };
 layout(std430, binding = 3) readonly buffer PageV { int v_ids[]; };
-layout(std430, binding = 4) readonly buffer Kpool { float16_t kp[]; };
-layout(std430, binding = 5) readonly buffer Vpool { float16_t vp[]; };
+layout(std430, binding = 4) readonly buffer Kpool { bfloat16_t kp[]; };
+layout(std430, binding = 5) readonly buffer Vpool { bfloat16_t vp[]; };
 
 void main() {
     int lane = int(gl_SubgroupInvocationID);
     int warp = int(gl_SubgroupID);
     uint bh  = warp + gl_WorkGroupID.x * WARPS;
-    if (bh >= p.B * p.n_heads) return;
+    if (bh >= p.batch * p.num_q_heads) return;
 
-    int hi  = int(bh) % p.n_heads;
-    int bi  = int(bh) / p.n_heads;
+    int hi  = int(bh) % p.num_q_heads;
+    int bi  = int(bh) / p.num_q_heads;
     int kvi = hi / p.num_kv_groups;
     int qp  = int(gl_WorkGroupID.y);
 
-    int q_base = (bi * p.n_heads  + hi) * p.Sq * p.head_dim;
+    int q_base = (bi * p.num_q_heads  + hi) * p.seq_len * p.head_dim;
 
     float qr[VEC];
     for (int i = 0; i < VEC; i++) {
@@ -69,10 +69,10 @@ void main() {
 
         for (int pos = 0; pos < blk_end - blk_start; pos++) {
             int kv_pos = blk_start + pos;
-            if (p.causal != 0 && kv_pos > p.q_start + qp) break;
+            if (kv_pos > p.q_start + qp) break;
 
-            int off = kv_off_base + pos * p.n_kv_heads * p.head_dim;
-            int v_off = vv_off_base + pos * p.n_kv_heads * p.head_dim;
+            int off = kv_off_base + pos * p.num_kv_heads * p.head_dim;
+            int v_off = vv_off_base + pos * p.num_kv_heads * p.head_dim;
 
             float s = 0.0;
             for (int i = 0; i < VEC; i++) {
@@ -99,6 +99,6 @@ void main() {
 
     float inv_l = 1.0 / l;
     for (int i = 0; i < VEC; i++) {
-        O[q_base + qp * p.head_dim + (lane + i * 32)] = float16_t(or_[i] * inv_l);
+        O[q_base + qp * p.head_dim + (lane + i * 32)] = bfloat16_t(or_[i] * inv_l);
     }
 }

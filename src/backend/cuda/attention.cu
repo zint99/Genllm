@@ -82,9 +82,6 @@ void SoftmaxImpl<Device::CUDA>::execute(Tensor* t, int32_t dev_id){
 }
 
 
-void AttentionImpl<Device::CUDA>::execute(Tensor*, int32_t)       { throw std::runtime_error("cuda::attention not implemented"); }
-
-
 template <typename T, int HEAD_DIM=128>
 __global__ void flash_attention_warp_kernel(
     T* __restrict__ out,
@@ -176,6 +173,7 @@ __global__ void flash_attention_warp_kernel(
         out[out_base + q_pos * HEAD_DIM + d_idx] = T(o_reg[i] * inv_l);
     }
 }
+
 void FlashAttentionImpl<Device::CUDA>::execute(Tensor* out, int32_t dev_id) {
     cudaSetDevice(dev_id);
     const Tensor* Q = out->src[0];
@@ -351,7 +349,7 @@ __global__ void paged_attention_kernel(
     }
 }
 
-void SdpaImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
+void PagedAttentionImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
     auto* mgr = g_mem_manager->get_attention_manager(out->device,dev_id);
     int32_t layer_id = out->layer_id;
     if (!mgr || !mgr->is_active(layer_id)) return;
@@ -446,12 +444,7 @@ void SdpaImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
 }
 
 
-void DiagMaskInfImpl<Device::CUDA>::execute(Tensor*, int32_t)     { throw std::runtime_error("cuda::diag_mask_inf not implemented"); }
-
-
 template struct SoftmaxImpl<Device::CUDA>;
-template struct DiagMaskInfImpl<Device::CUDA>;
-template struct SdpaImpl<Device::CUDA>;
-template struct AttentionImpl<Device::CUDA>;
+template struct PagedAttentionImpl<Device::CUDA>;
 template struct FlashAttentionImpl<Device::CUDA>;
 }

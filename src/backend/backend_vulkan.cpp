@@ -17,7 +17,8 @@
 #include "backend/vulkan/spv/layer_norm.h"
 #include "backend/vulkan/spv/rope.h"
 #include "backend/vulkan/spv/permute.h"
-#include "backend/vulkan/spv/attention.h"
+#include "backend/vulkan/spv/page_attention.h"
+#include "backend/vulkan/spv/flash_attention.h"
 #include "backend/vulkan/vulkan_context.h"
 #include "backend/vulkan/push_constants.h"
 
@@ -193,9 +194,9 @@ static struct VulkanBackendProviderRegistrar {
         instance.registerOp("permute_bf16", vkspv::permute_bf16_spv, vkspv::permute_bf16_spv_len, 2, sizeof(ops::PermutePushConstants));
         instance.registerOp("permute_f32",  vkspv::permute_f32_spv,  vkspv::permute_f32_spv_len,  2, sizeof(ops::PermutePushConstants));
 
-        // --- SDPA ---
-        instance.registerOp("sdpa_f16",  vkspv::sdpa_f16_spv,  vkspv::sdpa_f16_spv_len,  4, sizeof(ops::SdpaPushConstants));
-        instance.registerOp("sdpa_bf16", vkspv::sdpa_bf16_spv, vkspv::sdpa_bf16_spv_len, 4, sizeof(ops::SdpaPushConstants));
+        // --- Flash Attention ---
+        instance.registerOp("flash_attn_f16",  vkspv::flash_attn_f16_spv,  vkspv::flash_attn_f16_spv_len,  4, sizeof(ops::FlashPushConstants));
+        instance.registerOp("flash_attn_bf16", vkspv::flash_attn_bf16_spv, vkspv::flash_attn_bf16_spv_len, 4, sizeof(ops::FlashPushConstants));
 
         // --- Paged Attention ---
         instance.registerOp("page_attn_f16",  vkspv::page_attn_f16_spv,  vkspv::page_attn_f16_spv_len,  6, sizeof(ops::PagedAttnPushConstants));

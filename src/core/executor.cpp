@@ -466,8 +466,7 @@ void Executor::dispatch_kernel(Tensor* t,int32_t dev_id) {
         case OperationType::OP_TYPE_GELU:           kernel::gelu(t, dev_id);  break;
         case OperationType::OP_TYPE_RELU:           kernel::relu(t, dev_id);  break;
         case OperationType::OP_TYPE_SOFTMAX:        kernel::softmax(t, dev_id);      break;
-        case OperationType::OP_TYPE_DIAG_MASK_INF:  kernel::diag_mask_inf(t, dev_id); break;
-        case OperationType::OP_TYPE_SDPA:           kernel::sdpa(t, dev_id);          break;
+        case OperationType::OP_TYPE_PAGED_ATTN:     kernel::paged_attention(t, dev_id);          break;
         case OperationType::OP_TYPE_FLASH_ATTN:     kernel::flash_attention(t, dev_id);    break;
         case OperationType::OP_TYPE_EMBEDDING:      kernel::embedding(t, dev_id);  break;
         case OperationType::OP_TYPE_APPLY_ROPE:     kernel::apply_rope(t, dev_id); break;

@@ -37,31 +37,28 @@ struct PermutePushConstants {
     int32_t perm[TENSOR_MAX_DIMS];
 };
 
-struct SdpaPushConstants {
-    int32_t B;
-    int32_t n_heads;
-    int32_t Sq;
-    int32_t n_kv_heads;
-    int32_t Skv;
+struct FlashPushConstants {
+    int32_t batch;
+    int32_t seq_len;
     int32_t head_dim;
-    int32_t num_kv_groups;
-    float   scale;
-    int32_t causal;
+    int32_t num_q_heads;
+    int32_t num_kv_heads;
+    int32_t group_size;  // = num_q_heads / num_kv_heads
+    float   scale;       // = 1.0f / sqrtf(head_dim)
 };
 
 struct PagedAttnPushConstants {
-    int32_t B;
-    int32_t n_heads;
-    int32_t Sq;
-    int32_t n_kv_heads;
+    int32_t batch;
+    int32_t seq_len;
+    int32_t num_q_heads;
+    int32_t num_kv_heads;
     int32_t total_cached;
     int32_t num_blocks;
     int32_t num_kv_groups;
     int32_t head_dim;
-    float   scale;
-    int32_t causal;
     int32_t block_stride_elems;
     int32_t q_start;
+    float   scale;      // = 1.0f / sqrtf(head_dim)
 };
 
 } // namespace ops

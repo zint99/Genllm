@@ -157,7 +157,7 @@ Tensor* Qwen3Model::build_qwen3_layer(
     
     // 1.6 SDPA / FlashAttention
     //  [B, num_heads, seq_len, head_dim]
-    Tensor* attn_4d = OpFactory::SDPA(q_rope, k_rope, v_4d,nullptr,1.0f/(std::sqrt(float(head_dim))),true,config_.num_heads / config_.num_kv_heads,"attn_4d",layer_idx);
+    Tensor* attn_4d = OpFactory::PagedAttention(q_rope, k_rope, v_4d,nullptr,1.0f/(std::sqrt(float(head_dim))),true,config_.num_heads / config_.num_kv_heads,"attn_4d",layer_idx);
     
     // 1.7 [B, num_heads, seq_len, head_dim] -> [B, seq_len, num_heads, head_dim] -> [B, seq_len, num_heads*head_dim]
     Tensor* attn_flat = OpFactory::permute_reshape(attn_4d,{0, 2, 1, 3},{1,-1,num_heads * head_dim},"attn_flat",layer_idx);
