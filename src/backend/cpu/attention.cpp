@@ -1,9 +1,10 @@
 #include <cmath>
 #include <limits>
 #include <vector>
-#include "backend/cpu/attention.h"
-#include "utils/dtype_traits.hpp"
+#include "tools.hpp"
 #include "core/manager.h"
+#include "utils/dtype_traits.hpp"
+#include "backend/cpu/attention.h"
 
 
 namespace ops {
@@ -40,15 +41,20 @@ namespace ops {
         const Tensor* Q = out->src[0];  // [batch, num_heads, seq_len_q, head_dim]      ,[1,16,4,128]
         const Tensor* K = out->src[1];  // [batch, num_kv_heads, seq_len_kv, head_dim]  ,[1,8,4,128]
         const Tensor* V = out->src[2];  // [batch, num_kv_heads, seq_len_kv, head_dim]  ,[1,8,4,128]
-        const Tensor* mask = out->src[3]; // optional attention mask [seq_len_q, seq_len_kv]
-        int32_t head_dim = static_cast<int32_t>(out->op_params[0]);
-        float scale_val = out->op_params[1];
-        int32_t causal = static_cast<int32_t>(out->op_params[2]);
+
+        // ops::println(Q);
+        // ops::println(K);
+        // ops::println(V);
+
+        int32_t batch        = static_cast<int32_t>(Q->dims[0]);
+        int32_t num_q_heads  = static_cast<int32_t>(Q->dims[1]);
+        int32_t seq_len      = static_cast<int32_t>(Q->dims[2]);
+        int32_t n_kv_h       = static_cast<int32_t>(K->dims[1]);
+        int32_t head_dim     = static_cast<int32_t>(out->op_params[0]);
         int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
-        int64_t B            = Q->dims[0];
-        int64_t num_q_heads  = Q->dims[1];
-        int64_t seq_len      = Q->dims[2];
-        int64_t n_kv_h       = K->dims[1];
+
+        float scale_val = out->op_params[1];
+        bool causal = static_cast<int32_t>(out->op_params[2]);
 
         // Q/K/V 可能是不同 dtype（如 BF16），用输出 dtype 做 dispatch
         dtype::dispatch(out->dtype, [&]<DataType D>() {
@@ -57,11 +63,9 @@ namespace ops {
             size_t k_sz = data_type_size(K->dtype);
             size_t v_sz = data_type_size(V->dtype);
             size_t o_sz = data_type_size(out->dtype);
-            // mask（可选，F32 类型）
-            const float* mask_data = mask ? static_cast<const float*>(mask->data) : nullptr;
             // 临时 buffer: scores [seq_len]
             std::vector<float> scores(static_cast<size_t>(seq_len));
-            for (int64_t b = 0; b < B; ++b) {
+            for (int64_t b = 0; b < batch; ++b) {
                 for (int64_t h = 0; h < num_q_heads; ++h) {
                     // GQA: 对应的 KV head
                     int64_t kv_h = h / num_kv_groups;
@@ -80,21 +84,9 @@ namespace ops {
                             }
                             scores[skv] = dot * scale_val;
                         }
-                        // ── 2. Causal mask: skv > sq 的位置填 -inf ──
                         if (causal) {
                             for (int64_t skv = sq + 1; skv < seq_len; ++skv) {
                                 scores[skv] = -std::numeric_limits<float>::infinity();
-                            }
-                        }
-                        // ── 3. 可选 mask ──
-                        if (mask_data) {
-                            for (int64_t skv = 0; skv < seq_len; ++skv) {
-                                float mv = mask_data[sq * seq_len + skv];
-                                if (mv == 0.0f) {
-                                    scores[skv] = -std::numeric_limits<float>::infinity();
-                                } else if (std::isfinite(mv)) {
-                                    scores[skv] += mv;
-                                }
                             }
                         }
                         // ── 4. Softmax ──
@@ -178,10 +170,10 @@ namespace ops {
                         if (blk_start > limit) break;
 
                         const PageEntry& entry = layer.page_table[blk];
-                        const uint8_t* k_ptr = static_cast<const uint8_t*>(
-                            layer.k_pool.block_data(entry.k_block_id));
-                        const uint8_t* v_ptr = static_cast<const uint8_t*>(
-                            layer.v_pool.block_data(entry.v_block_id));
+                        const uint8_t* k_ptr = static_cast<const uint8_t*>(layer.k_pool.block_data(entry.k_block_id));
+
+                        const uint8_t* v_ptr = static_cast<const uint8_t*>(layer.v_pool.block_data(entry.v_block_id));
+                        
                         if (!k_ptr || !v_ptr) continue;
 
                         for (int32_t pos_in_blk = 0; pos_in_blk < blk_end - blk_start; ++pos_in_blk) {

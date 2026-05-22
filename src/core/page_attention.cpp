@@ -83,10 +83,10 @@ void PagedAttentionManager::reserve_layer(int32_t layer_id, int32_t max_blocks) 
 
     if (!state.active || !pool_) return;
 
-    // 16 * 8 * 128 * sizeof(dtype) = 
+    // 16 * 8 * 128 * 2 = 32768 byte
     size_t block_bytes = static_cast<size_t>(PAGE_BLOCK_SIZE) * state.n_kv_heads * state.head_dim * data_type_size(state.dtype);
 
-    size_t total_bytes = static_cast<size_t>(max_blocks) * block_bytes; // 512 * 
+    size_t total_bytes = static_cast<size_t>(max_blocks) * block_bytes; // 512 * 32768 byte = 16777216
 
     MemoryBlock k_block = pool_->allocate(total_bytes, 32);
     MemoryBlock v_block = pool_->allocate(total_bytes, 32);

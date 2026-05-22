@@ -11,7 +11,7 @@ int main() {
 
     DeviceManager::instance().print_devices();
 
-    GGUFParser parser("models/Qwen3-4B-BF16.gguf");
+    GGUFParser parser("models/Qwen3-0.6B-BF16.gguf");
 
     // parser.info().print_info();
 
@@ -33,7 +33,7 @@ int main() {
 
     scheduler.schedule(DeviceManager::instance().get_devices());
 
-    // scheduler.export_dot("qwen3-graph.dot");
+    scheduler.export_dot("qwen3-graph.dot");
 
     std::unique_ptr<MemoryManager>& manager = scheduler.mmanager();
 
@@ -43,20 +43,16 @@ int main() {
 
     Tokenizer tokenizer = Tokenizer::from_gguf(parser);
 
-    const std::string user_msg = "中国首都是哪里？";
+    const std::string user_prompt = "中国首都是哪里？";
+    std::string chat_prompt = std::format("<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", user_prompt);
 
-    std::vector<int32_t> prompt = tokenizer.encode(user_msg);
-    std::println("Prompt: {}", prompt);
+    std::vector<int32_t> tokens = tokenizer.encode(chat_prompt);
 
-    std::string chat_prompt = std::format("<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", user_msg);
-
-    std::vector<int32_t> prompt_ids = tokenizer.encode(chat_prompt);
-
-    std::println("tokens={}",prompt_ids);
+    std::println("tokens={}",tokens);
 
     try {
 
-        RUNNING_TIME(executor.generate(prompt_ids, 512, tokenizer.eos_id(), &tokenizer));
+        RUNNING_TIME(executor.generate(tokens, 512, tokenizer.eos_id(), &tokenizer));
 
     } catch (const std::exception& e) {
 

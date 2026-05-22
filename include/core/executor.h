@@ -49,12 +49,12 @@ public:
         class Tokenizer* tokenizer = nullptr
     );
 
-    [[nodiscard]] int64_t seq_pos() const { return seq_pos_; }
-
-    /// 多轮对话：在已有 KV cache 基础上追加新 token 并做 prefill
-    void append_tokens(const std::vector<int32_t>& token_ids);
     void decode_step(int32_t token_id);
+    void decode_step(std::vector<int32_t> token_ids);
+    void append_tokens(const std::vector<int32_t>& token_ids);
+
     [[nodiscard]] int32_t sample() const;
+    [[nodiscard]] int64_t seq_pos() const { return seq_pos_; }
 
 private:
     void prefill(const std::vector<int32_t>& token_ids);

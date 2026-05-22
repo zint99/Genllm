@@ -77,11 +77,14 @@ namespace ops {
         const Tensor* x   = out->src[0];  // [B, n_heads, seq_len, head_dim] , bf16/f16
         const Tensor* cos = out->src[1];  // [max_seq_len, head_dim] F32
         const Tensor* sin = out->src[2];  // [max_seq_len, head_dim] F32
+
         int64_t head_dim = static_cast<int64_t>(out->op_params[0]);
         int64_t half_dim = static_cast<int64_t>(out->op_params[0] / 2);
         int64_t start_pos = static_cast<int64_t>(out->op_params[2]);  // ✅ 新增
         int64_t B = x->dims[0], n_heads = x->dims[1], seq_len = x->dims[2];
+
         assert(B == 1);
+        
         const float* cos_data = static_cast<const float*>(cos->data);
         const float* sin_data = static_cast<const float*>(sin->data);
         size_t cos_stride = head_dim;

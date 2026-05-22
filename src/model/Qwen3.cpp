@@ -155,9 +155,17 @@ Tensor* Qwen3Model::build_qwen3_layer(
     // 1.5 Apply RoPE, [B, num_heads, seq_len, head_dim], [B, num_kv_heads, seq_len, head_dim]
     auto [q_rope, k_rope] = OpFactory::apply_rope(q_normed, k_normed, rope_cos, rope_sin,nullptr,"",layer_idx); 
     
-    // 1.6 SDPA / FlashAttention
-    //  [B, num_heads, seq_len, head_dim]
-    Tensor* attn_4d = OpFactory::PagedAttention(q_rope, k_rope, v_4d,nullptr,1.0f/(std::sqrt(float(head_dim))),true,config_.num_heads / config_.num_kv_heads,"attn_4d",layer_idx);
+    // 1.6 Attention [B, num_heads, seq_len, head_dim]
+    Tensor* attn_4d = OpFactory::Attention(
+        q_rope, k_rope, v_4d,
+        nullptr,
+        1.0f/(std::sqrt(float(head_dim))),
+        true,
+        config_.num_heads / config_.num_kv_heads,
+        "attn_4d",
+        OperationType::OP_TYPE_PAGED_ATTN,
+        layer_idx
+    );
     
     // 1.7 [B, num_heads, seq_len, head_dim] -> [B, seq_len, num_heads, head_dim] -> [B, seq_len, num_heads*head_dim]
     Tensor* attn_flat = OpFactory::permute_reshape(attn_4d,{0, 2, 1, 3},{1,-1,num_heads * head_dim},"attn_flat",layer_idx);

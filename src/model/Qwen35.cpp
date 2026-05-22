@@ -208,7 +208,7 @@ Tensor* Qwen35Model::build_linear_attn_layer(Tensor* input, const GGUFInfo& info
 
     float scale = 1.0f / std::sqrt(static_cast<float>(config_.key_length));
 
-    auto* attn_4d = OpFactory::PagedAttention(q_rope, k_rope, v_4d, nullptr, scale, true, config_.head_count / config_.head_count_kv, "attn_4d", layer_idx);
+    auto* attn_4d = OpFactory::Attention(q_rope, k_rope, v_4d, nullptr, scale, true, config_.head_count / config_.head_count_kv, "attn_4d",OperationType::OP_TYPE_PAGED_ATTN, layer_idx);
 
     auto* attn_flat = OpFactory::permute_reshape(attn_4d, {0, 2, 1, 3}, {1, -1, q_dim}, "attn_flat", layer_idx);
     // gate: sigmoid(gate_flat) * attn_flat，再经过 o_proj

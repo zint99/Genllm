@@ -158,21 +158,24 @@ void Executor::execute_tensor(Tensor* t,int32_t dev_id) {
 }
 // 作用：执行自回归生成，分为 prefill 和 decode 两个阶段
 std::vector<int32_t> Executor::generate(
-    const std::vector<int32_t>& prompt,
+    const std::vector<int32_t>& tokens,
     int64_t max_tokens,
     int32_t eos_tokens,
     Tokenizer* tokenizer)
 {
-    if(prompt.empty()) throw std::invalid_argument("Executor::generate: prompt cannot be empty");
+    if(tokens.empty()) throw std::invalid_argument("Executor::generate: tokens cannot be empty");
     if(max_tokens<=0) throw std::invalid_argument("Executor::generate: max_tokens must be positive");
     if(max_tokens>scheduler_.config().max_seq_len) {
         throw std::invalid_argument(std::format("Executor::generate: max_tokens {} exceeds scheduler's max_seq_len {}",max_tokens, scheduler_.config().max_seq_len));
     }
-    std::vector<int32_t> output;
-    this->prefill(prompt);
+
+    this->prefill(tokens);
+    std::vector<int32_t> output = tokens;
+
     for (int i = 0; i < max_tokens; ++i) {
         int32_t next = this->sample();
         if (eos_tokens == next) break;
+
         output.push_back(next);
 
         if (tokenizer) {
@@ -180,9 +183,10 @@ std::vector<int32_t> Executor::generate(
             std::print("{}", token_str);
             std::fflush(stdout);
         }
-        this->decode_step(next);
+        this->decode_step(next); // fast,缓存KV
+        // this->decode_step(output); // slow,不缓存KV
     }
-    return output;
+    return {output.begin()+tokens.size(),output.end()};
 }
 
 void Executor::prefill(const std::vector<int32_t>& token_ids) {
@@ -197,6 +201,16 @@ void Executor::prefill(const std::vector<int32_t>& token_ids) {
     this->seq_pos_ = static_cast<int64_t>(token_ids.size());
 }
 
+void Executor::decode_step(std::vector<int32_t> token_ids) {
+    this->is_prefill_ = false;
+    this->resolve_dims(1, token_ids.size());
+    // for (auto* t : apply_rope_tensors_) {
+    //     t->op_params[2] = static_cast<float>(this->seq_pos_);
+    // }
+    this->bind_input("input_ids", token_ids.data(), sizeof(int32_t) * token_ids.size());
+    this->forward();
+    ++this->seq_pos_;
+}
 void Executor::decode_step(int32_t token_id) {
     this->is_prefill_ = false;
     this->resolve_dims(1, 1);
@@ -207,7 +221,6 @@ void Executor::decode_step(int32_t token_id) {
     this->forward();
     ++this->seq_pos_;
 }
-
 void Executor::append_tokens(const std::vector<int32_t>& token_ids) {
     this->is_prefill_ = true;
     int64_t n = static_cast<int64_t>(token_ids.size());
