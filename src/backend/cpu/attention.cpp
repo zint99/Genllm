@@ -35,7 +35,7 @@ namespace ops {
         });
     }
 
-    void PagedAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
+    void FlashAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
 
         const Tensor* Q = out->src[0];  // [batch, num_heads, seq_len_q, head_dim]      ,[1,16,4,128]
         const Tensor* K = out->src[1];  // [batch, num_kv_heads, seq_len_kv, head_dim]  ,[1,8,4,128]
@@ -45,11 +45,11 @@ namespace ops {
         float scale_val = out->op_params[1];
         int32_t causal = static_cast<int32_t>(out->op_params[2]);
         int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
-        int64_t B        = Q->dims[0];
-        int64_t n_heads  = Q->dims[1];
-        int64_t Sq       = Q->dims[2];
-        int64_t n_kv_h   = K->dims[1];
-        int64_t Skv      = K->dims[2];
+        int64_t B            = Q->dims[0];
+        int64_t num_q_heads  = Q->dims[1];
+        int64_t seq_len      = Q->dims[2];
+        int64_t n_kv_h       = K->dims[1];
+
         // Q/K/V 可能是不同 dtype（如 BF16），用输出 dtype 做 dispatch
         dtype::dispatch(out->dtype, [&]<DataType D>() {
             using T = dtype::type_t<D>;
@@ -59,17 +59,17 @@ namespace ops {
             size_t o_sz = data_type_size(out->dtype);
             // mask（可选，F32 类型）
             const float* mask_data = mask ? static_cast<const float*>(mask->data) : nullptr;
-            // 临时 buffer: scores [Skv]
-            std::vector<float> scores(static_cast<size_t>(Skv));
+            // 临时 buffer: scores [seq_len]
+            std::vector<float> scores(static_cast<size_t>(seq_len));
             for (int64_t b = 0; b < B; ++b) {
-                for (int64_t h = 0; h < n_heads; ++h) {
+                for (int64_t h = 0; h < num_q_heads; ++h) {
                     // GQA: 对应的 KV head
                     int64_t kv_h = h / num_kv_groups;
-                    for (int64_t sq = 0; sq < Sq; ++sq) {
-                        size_t q_off = static_cast<size_t>((b * n_heads * Sq + h * Sq + sq) * head_dim);
+                    for (int64_t sq = 0; sq < seq_len; ++sq) {
+                        size_t q_off = static_cast<size_t>((b * num_q_heads * seq_len + h * seq_len + sq) * head_dim);
                         // ── 1. 计算 scores: Q @ K^T * scale ──
-                        for (int64_t skv = 0; skv < Skv; ++skv) {
-                            size_t k_off = static_cast<size_t>((b * n_kv_h * Skv + kv_h * Skv + skv) * head_dim);
+                        for (int64_t skv = 0; skv < seq_len; ++skv) {
+                            size_t k_off = static_cast<size_t>((b * n_kv_h * seq_len + kv_h * seq_len + skv) * head_dim);
                             float dot = 0.0f;
                             for (int32_t d = 0; d < head_dim; ++d) {
                                 float qv = dtype::to_f32_rt(Q->dtype,
@@ -82,14 +82,14 @@ namespace ops {
                         }
                         // ── 2. Causal mask: skv > sq 的位置填 -inf ──
                         if (causal) {
-                            for (int64_t skv = sq + 1; skv < Skv; ++skv) {
+                            for (int64_t skv = sq + 1; skv < seq_len; ++skv) {
                                 scores[skv] = -std::numeric_limits<float>::infinity();
                             }
                         }
                         // ── 3. 可选 mask ──
                         if (mask_data) {
-                            for (int64_t skv = 0; skv < Skv; ++skv) {
-                                float mv = mask_data[sq * Skv + skv];
+                            for (int64_t skv = 0; skv < seq_len; ++skv) {
+                                float mv = mask_data[sq * seq_len + skv];
                                 if (mv == 0.0f) {
                                     scores[skv] = -std::numeric_limits<float>::infinity();
                                 } else if (std::isfinite(mv)) {
@@ -99,22 +99,22 @@ namespace ops {
                         }
                         // ── 4. Softmax ──
                         float max_val = -std::numeric_limits<float>::infinity();
-                        for (int64_t skv = 0; skv < Skv; ++skv)
+                        for (int64_t skv = 0; skv < seq_len; ++skv)
                             if (scores[skv] > max_val) max_val = scores[skv];
                         float sum = 0.0f;
-                        for (int64_t skv = 0; skv < Skv; ++skv) {
+                        for (int64_t skv = 0; skv < seq_len; ++skv) {
                             scores[skv] = std::exp(scores[skv] - max_val);
                             sum += scores[skv];
                         }
-                        for (int64_t skv = 0; skv < Skv; ++skv)
+                        for (int64_t skv = 0; skv < seq_len; ++skv)
                             scores[skv] /= sum;
                         // ── 5. scores @ V → output ──
-                        size_t o_off = static_cast<size_t>((b * n_heads * Sq + h * Sq + sq) * head_dim);
+                        size_t o_off = static_cast<size_t>((b * num_q_heads * seq_len + h * seq_len + sq) * head_dim);
                         for (int32_t d = 0; d < head_dim; ++d) {
                             float val = 0.0f;
-                            for (int64_t skv = 0; skv < Skv; ++skv) {
+                            for (int64_t skv = 0; skv < seq_len; ++skv) {
                                 size_t v_off = static_cast<size_t>(
-                                    (b * n_kv_h * Skv + kv_h * Skv + skv) * head_dim + d);
+                                    (b * n_kv_h * seq_len + kv_h * seq_len + skv) * head_dim + d);
                                 float vv = dtype::to_f32_rt(V->dtype,
                                     static_cast<const uint8_t*>(V->data) + v_off * v_sz);
                                 val += scores[skv] * vv;
@@ -128,7 +128,7 @@ namespace ops {
         });
     }
 
-    void FlashAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
+    void PagedAttentionImpl<Device::CPU>::execute(Tensor* out, int32_t dev_id) {
         auto* mgr = g_mem_manager->get_attention_manager(out->device,0);
 
         int32_t layer_id = out->layer_id;
@@ -138,22 +138,20 @@ namespace ops {
         Tensor* K = out->src[1];
         Tensor* V = out->src[2];
 
-        int32_t B = static_cast<int32_t>(Q->dims[0]);
-        int32_t n_heads = static_cast<int32_t>(Q->dims[1]);
-        int32_t Sq = static_cast<int32_t>(Q->dims[2]);
+        int32_t batch = static_cast<int32_t>(Q->dims[0]);
+        int32_t num_q_heads = static_cast<int32_t>(Q->dims[1]);
+        int32_t seq_len = static_cast<int32_t>(Q->dims[2]);
         int32_t head_dim = static_cast<int32_t>(Q->dims[3]);
-        int32_t n_kv_heads = static_cast<int32_t>(K->dims[1]);
-        int32_t Skv = static_cast<int32_t>(K->dims[2]);
+
+        int32_t num_kv_heads = static_cast<int32_t>(K->dims[1]);
         int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
+
         float scale = out->op_params[1];
         bool causal = static_cast<int32_t>(out->op_params[2]) != 0;
 
         auto& layer = mgr->get_layer(layer_id);
 
-        if (Skv > 0) {
-            // 保存KV到缓存池里面
-            mgr->append_kv_from_tensor(layer_id, K->data, V->data,n_kv_heads, Skv, head_dim, K->dtype);
-        }
+        mgr->append_kv_from_tensor(layer_id, K->data, V->data,num_kv_heads, seq_len, head_dim, K->dtype);
 
         if (!layer.active || layer.page_table.empty()) return;
 
@@ -163,15 +161,15 @@ namespace ops {
         size_t elem_size = data_type_size(Q->dtype);
         bool apply_causal = causal;
 
-        for (int32_t b = 0; b < B; ++b) {
-            for (int32_t h = 0; h < n_heads; ++h) {
+        for (int32_t b = 0; b < batch; ++b) {
+            for (int32_t h = 0; h < num_q_heads; ++h) {
                 int32_t kv_h = h / num_kv_groups;
-                for (int32_t sq = 0; sq < Sq; ++sq) {
+                for (int32_t sq = 0; sq < seq_len; ++sq) {
                     float m = -std::numeric_limits<float>::infinity();
                     float l = 0.0f;
                     std::vector<float> o(head_dim, 0.0f);
 
-                    int32_t q_abs = total_cached - Sq + sq;
+                    int32_t q_abs = total_cached - seq_len + sq;
                     int32_t limit = apply_causal ? q_abs : (total_cached - 1);
 
                     for (int32_t blk = 0; blk < num_blocks; ++blk) {
@@ -190,12 +188,12 @@ namespace ops {
                             int32_t kv_pos = blk_start + pos_in_blk;
                             if (apply_causal && kv_pos > q_abs) break;
 
-                            size_t kv_off = (static_cast<size_t>(pos_in_blk) * n_kv_heads + kv_h) * head_dim;
+                            size_t kv_off = (static_cast<size_t>(pos_in_blk) * num_kv_heads + kv_h) * head_dim;
                             float score = 0.0f;
                             for (int32_t d = 0; d < head_dim; ++d) {
                                 float qv = dtype::to_f32_rt(Q->dtype,
                                     static_cast<const uint8_t*>(Q->data)
-                                    + (((static_cast<size_t>(b) * n_heads + h) * Sq + sq) * head_dim + d) * elem_size);
+                                    + (((static_cast<size_t>(b) * num_q_heads + h) * seq_len + sq) * head_dim + d) * elem_size);
                                 float kv = dtype::to_f32_rt(Q->dtype, k_ptr + (kv_off + d) * elem_size);
                                 score += qv * kv;
                             }
@@ -217,7 +215,7 @@ namespace ops {
                     float inv_l = 1.0f / l;
                     for (int32_t d = 0; d < head_dim; ++d) {
                         uint8_t* out_ptr = static_cast<uint8_t*>(out->data)
-                            + (((static_cast<size_t>(b) * n_heads + h) * Sq + sq) * head_dim + d) * elem_size;
+                            + (((static_cast<size_t>(b) * num_q_heads + h) * seq_len + sq) * head_dim + d) * elem_size;
                         dtype::from_f32_rt(Q->dtype, o[d] * inv_l, out_ptr);
                     }
                 }

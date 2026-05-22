@@ -119,16 +119,6 @@ public:
         size_t spv_size_words,
         uint32_t binding_count,
         uint32_t push_constant_size);
-
-    // ==================== Pipeline 管理（懒加载） ====================
-    // const PipelineInfo& getOrCreatePipeline(
-    //     int device_id,
-    //     const std::string& name,
-    //     const uint32_t* spv_data,
-    //     size_t spv_size_words,
-    //     uint32_t binding_count,
-    //     uint32_t push_constant_size);
-
     // ==================== Descriptor Set ====================
     
     bool isRecording(int device_id) const;

@@ -11,7 +11,7 @@ int main() {
 
     DeviceManager::instance().print_devices();
 
-    GGUFParser parser("models/Qwen3-0.6B-BF16.gguf");
+    GGUFParser parser("models/Qwen3-4B-BF16.gguf");
 
     // parser.info().print_info();
 
@@ -51,6 +51,8 @@ int main() {
     std::string chat_prompt = std::format("<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n", user_msg);
 
     std::vector<int32_t> prompt_ids = tokenizer.encode(chat_prompt);
+
+    std::println("tokens={}",prompt_ids);
 
     try {
 

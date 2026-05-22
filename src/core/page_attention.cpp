@@ -22,8 +22,7 @@ static void device_memcpy(void* dst, const void* src, size_t bytes, Device dev) 
     }
 }
 
-BlockPool::BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,
-                     int32_t n_kv_heads, int32_t head_dim, DataType dtype, size_t dev_handle)
+BlockPool::BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,int32_t n_kv_heads, int32_t head_dim, DataType dtype, size_t dev_handle)
     : block_capacity_(block_capacity)
     , n_kv_heads_(n_kv_heads)
     , head_dim_(head_dim)
@@ -81,17 +80,22 @@ void PagedAttentionManager::init_layer(int32_t layer_id, int32_t n_kv_heads, int
 
 void PagedAttentionManager::reserve_layer(int32_t layer_id, int32_t max_blocks) {
     auto& state = layers_[layer_id];
+
     if (!state.active || !pool_) return;
 
+    // 16 * 8 * 128 * sizeof(dtype) = 
     size_t block_bytes = static_cast<size_t>(PAGE_BLOCK_SIZE) * state.n_kv_heads * state.head_dim * data_type_size(state.dtype);
-    size_t total_bytes = static_cast<size_t>(max_blocks) * block_bytes;
+
+    size_t total_bytes = static_cast<size_t>(max_blocks) * block_bytes; // 512 * 
 
     MemoryBlock k_block = pool_->allocate(total_bytes, 32);
     MemoryBlock v_block = pool_->allocate(total_bytes, 32);
 
     size_t dh = pool_->device_handle();
+
     state.k_pool = BlockPool(k_block.ptr, total_bytes, max_blocks, state.n_kv_heads, state.head_dim, state.dtype, dh);
     state.k_pool.set_device_offset(k_block.offset);
+    
     state.v_pool = BlockPool(v_block.ptr, total_bytes, max_blocks, state.n_kv_heads, state.head_dim, state.dtype, dh);
     state.v_pool.set_device_offset(v_block.offset);
 }
@@ -99,21 +103,23 @@ void PagedAttentionManager::reserve_layer(int32_t layer_id, int32_t max_blocks) 
 // 把计算出来的KV数据写入到池子里面
 void PagedAttentionManager::append_kv_from_tensor(
     int32_t layer_id, const void* K_data, const void* V_data,
-    int32_t n_kv_heads, int32_t Skv, int32_t head_dim, DataType dtype
+    int32_t n_kv_heads, int32_t seq_len, int32_t head_dim, DataType dtype
 ) {
     auto& state = layers_[layer_id];
 
-    if (!state.active || Skv <= 0) return;
+    if (!state.active || seq_len <= 0) return;
 
     Device dev = pool_ ? pool_->device() : Device::CPU;
-    size_t elem_size = data_type_size(dtype);
-    size_t head_dim_bytes = static_cast<size_t>(head_dim) * elem_size;
-    size_t head_stride_bytes = static_cast<size_t>(Skv) * head_dim * elem_size;
+
     int32_t prev_cached = state.num_cached;
 
-    this->append_kv_pages(layer_id, Skv);
+    size_t elem_size = data_type_size(dtype);
+    size_t head_dim_bytes = static_cast<size_t>(head_dim) * elem_size;
+    size_t head_stride_bytes = static_cast<size_t>(seq_len) * head_dim * elem_size;
 
-    for (int32_t p = 0; p < Skv; ++p) {
+    this->append_kv_pages(layer_id, seq_len);
+
+    for (int32_t p = 0; p < seq_len; ++p) {
         int32_t global_pos = prev_cached + p;
         int32_t logical_block = global_pos / PAGE_BLOCK_SIZE;
         int32_t offset_in_block = global_pos % PAGE_BLOCK_SIZE;
@@ -142,9 +148,12 @@ void PagedAttentionManager::append_kv_pages(int32_t layer_id, int32_t count) {
         int32_t offset_in_block = global_pos % PAGE_BLOCK_SIZE;
 
         if (offset_in_block == 0) {
+
             int32_t k_id = state.k_pool.alloc();
             int32_t v_id = state.v_pool.alloc();
+
             if (k_id < 0 || v_id < 0) break;
+            
             if (logical_block >= static_cast<int32_t>(state.page_table.size()))
                 state.page_table.push_back({k_id, v_id});
         }

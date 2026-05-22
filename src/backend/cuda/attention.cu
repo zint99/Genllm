@@ -88,23 +88,22 @@ __global__ void flash_attention_warp_kernel(
     const T* __restrict__ Q,
     const T* __restrict__ K,
     const T* __restrict__ V,
-    int64_t B, int64_t n_heads, int64_t Sq,
-    int64_t n_kv_heads, int64_t Skv,
+    int64_t B, int64_t num_q_heads, int64_t seq_len,int64_t num_kv_heads,
     float scale_val, int causal, int num_kv_groups
 ) {
     const int bh = blockIdx.x;
-    if (bh >= B * n_heads) return;
-    const int head_idx  = bh % n_heads;
-    const int batch_idx = bh / n_heads;
+    if (bh >= B * num_q_heads) return;
+    const int head_idx  = bh % num_q_heads;
+    const int batch_idx = bh / num_q_heads;
     const int kv_head_idx = head_idx / num_kv_groups;
 
     const int warp_id = threadIdx.x / 32;
     const int lane_id = threadIdx.x % 32;
     const int q_pos = warp_id + blockIdx.y * static_cast<int>(blockDim.x / 32);
-    if (q_pos >= Sq) return;
+    if (q_pos >= seq_len) return;
 
-    const int64_t q_base  = (batch_idx * n_heads + head_idx) * Sq * HEAD_DIM;
-    const int64_t kv_base = (batch_idx * n_kv_heads + kv_head_idx) * Skv * HEAD_DIM;
+    const int64_t q_base  = (batch_idx * num_q_heads + head_idx) * seq_len * HEAD_DIM;
+    const int64_t kv_base = (batch_idx * num_kv_heads + kv_head_idx) * seq_len * HEAD_DIM;
     const int64_t out_base = q_base;
 
     constexpr int KV_TILE = 32;
@@ -123,8 +122,8 @@ __global__ void flash_attention_warp_kernel(
     float l_i = 0.f;
     float o_reg[VEC] = {0};
 
-    for (int kv_tile = 0; kv_tile < Skv; kv_tile += KV_TILE) {
-        int tile_size = KV_TILE < static_cast<int>(Skv - kv_tile) ? KV_TILE : static_cast<int>(Skv - kv_tile);
+    for (int kv_tile = 0; kv_tile < seq_len; kv_tile += KV_TILE) {
+        int tile_size = KV_TILE < static_cast<int>(seq_len - kv_tile) ? KV_TILE : static_cast<int>(seq_len - kv_tile);
 
         for (int i = threadIdx.x; i < tile_size * HEAD_DIM; i += blockDim.x) {
             int k = i / HEAD_DIM;
@@ -187,26 +186,25 @@ void FlashAttentionImpl<Device::CUDA>::execute(Tensor* out, int32_t dev_id) {
     int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
 
     int64_t B = Q->dims[0];
-    int64_t n_heads = Q->dims[1];
-    int64_t Sq = Q->dims[2];
+    int64_t num_q_heads = Q->dims[1];
+    int64_t seq_len = Q->dims[2];
 
-    int64_t n_kv_heads = K->dims[1];
-    int64_t Skv = K->dims[2];
+    int64_t num_kv_heads = K->dims[1];
 
     // ===== 强约束（当前 kernel 版本）=====
     constexpr int HEAD_DIM = 128;
     if (head_dim != HEAD_DIM) {
         throw std::runtime_error("flash_attention_warp_kernel requires head_dim == 128");
     }
-    if (Sq <= 0 || Skv <= 0) {
+    if (seq_len <= 0 || seq_len <= 0) {
         throw std::runtime_error("invalid sequence length");
     }
     // ===== kernel 配置 =====
     constexpr int KV_TILE = 32;
     constexpr int WARPS_PER_BLOCK = 4;
     constexpr int THREADS = WARPS_PER_BLOCK * 32;
-    const int blocks_x = static_cast<int>(B * n_heads);
-    const int blocks_y = static_cast<int>((Sq + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
+    const int blocks_x = static_cast<int>(B * num_q_heads);
+    const int blocks_y = static_cast<int>((seq_len + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK);
     const dim3 grid_dim(blocks_x, blocks_y);
     const size_t shared_mem = 2 * KV_TILE * HEAD_DIM * sizeof(__nv_bfloat16);
     // ===== launch =====
@@ -223,8 +221,8 @@ void FlashAttentionImpl<Device::CUDA>::execute(Tensor* out, int32_t dev_id) {
                     Q_ptr,
                     K_ptr,
                     V_ptr,
-                    B, n_heads, Sq,
-                    n_kv_heads, Skv,
+                    B, num_q_heads, seq_len,
+                    num_kv_heads,
                     scale_val,
                     causal,
                     num_kv_groups
@@ -240,8 +238,8 @@ void FlashAttentionImpl<Device::CUDA>::execute(Tensor* out, int32_t dev_id) {
                     Q_ptr,
                     K_ptr,
                     V_ptr,
-                    B, n_heads, Sq,
-                    n_kv_heads, Skv,
+                    B, num_q_heads, seq_len,
+                    num_kv_heads,
                     scale_val,
                     causal,
                     num_kv_groups
@@ -263,8 +261,8 @@ template <typename T, int HEAD_DIM=128>
 __global__ void paged_attention_kernel(
     T* __restrict__ out,
     const T* __restrict__ Q,
-    int32_t B, int32_t n_heads, int32_t Sq,
-    int32_t n_kv_heads, int32_t total_cached,
+    int32_t B, int32_t num_q_heads, int32_t seq_len,
+    int32_t num_kv_heads, int32_t total_cached,
     float scale_val, int causal, int num_kv_groups,
     const int32_t* __restrict__ page_k_ids,
     const int32_t* __restrict__ page_v_ids,
@@ -275,17 +273,17 @@ __global__ void paged_attention_kernel(
     int32_t q_start
 ) {
     int32_t bh = blockIdx.x;
-    if (bh >= B * n_heads) return;
-    int32_t head_idx  = bh % n_heads;
-    int32_t batch_idx = bh / n_heads;
+    if (bh >= B * num_q_heads) return;
+    int32_t head_idx  = bh % num_q_heads;
+    int32_t batch_idx = bh / num_q_heads;
     int32_t kv_head_idx = head_idx / num_kv_groups;
 
     int32_t warp_id = threadIdx.x / 32;
     int32_t lane_id = threadIdx.x % 32;
     int32_t q_pos = warp_id + blockIdx.y * (blockDim.x / 32);
-    if (q_pos >= Sq) return;
+    if (q_pos >= seq_len) return;
 
-    int64_t q_base = (batch_idx * n_heads + head_idx) * Sq * HEAD_DIM;
+    int64_t q_base = (batch_idx * num_q_heads + head_idx) * seq_len * HEAD_DIM;
 
     float q_reg[HEAD_DIM / 32];
     #pragma unroll
@@ -315,7 +313,7 @@ __global__ void paged_attention_kernel(
             int32_t kv_pos = blk_start + p;
             if (causal && kv_pos > q_start + q_pos) continue;
 
-            int64_t kv_off = (int64_t(p) * n_kv_heads + kv_head_idx) * HEAD_DIM;
+            int64_t kv_off = (int64_t(p) * num_kv_heads + kv_head_idx) * HEAD_DIM;
 
             float score_partial = 0.f;
             #pragma unroll
@@ -358,13 +356,12 @@ void PagedAttentionImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
     Tensor* K = out->src[1];
     Tensor* V = out->src[2];
 
-    int32_t B = static_cast<int32_t>(Q->dims[0]);
-    int32_t n_heads = static_cast<int32_t>(Q->dims[1]);
-    int32_t Sq = static_cast<int32_t>(Q->dims[2]);
+    int32_t batch = static_cast<int32_t>(Q->dims[0]);
+    int32_t num_q_heads = static_cast<int32_t>(Q->dims[1]);
+    int32_t seq_len = static_cast<int32_t>(Q->dims[2]);
     int32_t head_dim = static_cast<int32_t>(Q->dims[3]);
-    int32_t n_kv_heads = static_cast<int32_t>(K->dims[1]);
-    int32_t Skv = static_cast<int32_t>(K->dims[2]);
-    
+
+    int32_t num_kv_heads = static_cast<int32_t>(K->dims[1]);
     int32_t num_kv_groups = static_cast<int32_t>(out->op_params[3]);
 
     float scale = out->op_params[1];
@@ -372,16 +369,14 @@ void PagedAttentionImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
 
     if (head_dim != 128) throw std::runtime_error("paged_attention requires head_dim == 128");
 
-    if (Skv > 0) {
-        mgr->append_kv_from_tensor(layer_id, K->data, V->data, n_kv_heads, Skv, head_dim, K->dtype);
-    }
+    mgr->append_kv_from_tensor(layer_id, K->data, V->data, num_kv_heads, seq_len, head_dim, K->dtype);
 
     auto& layer = mgr->get_layer(layer_id);
     int32_t total_cached = layer.num_cached;
     int32_t num_blocks = static_cast<int32_t>(layer.page_table.size());
     if (total_cached <= 0 || num_blocks <= 0) return;
 
-    int32_t block_stride_elems = PAGE_BLOCK_SIZE * n_kv_heads * head_dim;
+    int32_t block_stride_elems = PAGE_BLOCK_SIZE * num_kv_heads * head_dim;
 
     std::vector<int32_t> h_page_k_ids(num_blocks);
     std::vector<int32_t> h_page_v_ids(num_blocks);
@@ -401,8 +396,8 @@ void PagedAttentionImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
 
     constexpr int32_t WARPS_PER_BLOCK = 4;
     constexpr int32_t THREADS = WARPS_PER_BLOCK * 32;
-    int32_t blocks_x = B * n_heads;
-    int32_t blocks_y = (Sq + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
+    int32_t blocks_x = batch * num_q_heads;
+    int32_t blocks_y = (seq_len + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
     dim3 grid_dim(blocks_x, blocks_y);
 
     dtype::dispatch(out->dtype, [&]<DataType D>() {
@@ -412,24 +407,24 @@ void PagedAttentionImpl<Device::CUDA>::execute(Tensor* out,int32_t dev_id){
                 <<<grid_dim, THREADS>>>(
                     static_cast<__half*>(out->data),
                     static_cast<const __half*>(Q->data),
-                    B, n_heads, Sq, n_kv_heads, total_cached,
+                    batch, num_q_heads, seq_len, num_kv_heads, total_cached,
                     scale, causal, num_kv_groups,
                     d_page_k_ids, d_page_v_ids, num_blocks,
                     static_cast<const __half*>(k_pool_base),
                     static_cast<const __half*>(v_pool_base),
-                    block_stride_elems, total_cached - Sq
+                    block_stride_elems, total_cached - seq_len
                 );
         } else if constexpr (std::is_same_v<T, bfloat16_t>) {
             paged_attention_kernel<__nv_bfloat16, 128>
                 <<<grid_dim, THREADS>>>(
                     static_cast<__nv_bfloat16*>(out->data),
                     static_cast<const __nv_bfloat16*>(Q->data),
-                    B, n_heads, Sq, n_kv_heads, total_cached,
+                    batch, num_q_heads, seq_len, num_kv_heads, total_cached,
                     scale, causal, num_kv_groups,
                     d_page_k_ids, d_page_v_ids, num_blocks,
                     static_cast<const __nv_bfloat16*>(k_pool_base),
                     static_cast<const __nv_bfloat16*>(v_pool_base),
-                    block_stride_elems, total_cached - Sq
+                    block_stride_elems, total_cached - seq_len
                 );
         }
     });

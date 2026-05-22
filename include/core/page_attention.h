@@ -9,20 +9,6 @@
 constexpr int32_t PAGE_BLOCK_SIZE = 16;
 
 class BlockPool {
-public:
-    BlockPool() = default;
-    BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,int32_t n_kv_heads, int32_t head_dim, DataType dtype, size_t dev_handle = 0);
-
-    [[nodiscard]] int32_t alloc();
-    void free(int32_t block_id);
-    void reset();
-    [[nodiscard]] void* block_data(int32_t block_id) const;
-    [[nodiscard]] size_t device_handle() const { return dev_handle_; }
-    [[nodiscard]] size_t device_offset() const { return dev_offset_; }
-    void set_device_offset(size_t off) { dev_offset_ = off; }
-    bool empty() const { return num_blocks_ == 0; }
-    int32_t num_blocks() const { return num_blocks_; }
-    int32_t num_free() const { return static_cast<int32_t>(free_list_.size()); }
 private:
     int32_t head_dim_ = 0;
     int32_t n_kv_heads_ = 0;
@@ -38,6 +24,24 @@ private:
     std::byte* buffer_ = nullptr;
     std::vector<int32_t> free_list_;
     friend class PagedAttentionManager;
+public:
+    BlockPool() = default;
+
+    BlockPool(void* buffer, size_t buffer_bytes, int32_t block_capacity,int32_t n_kv_heads, int32_t head_dim, DataType dtype, size_t dev_handle = 0);
+
+    [[nodiscard]] int32_t alloc();
+
+    void reset();
+    void free(int32_t block_id);
+    
+    [[nodiscard]] void* block_data(int32_t block_id) const;
+    [[nodiscard]] size_t device_handle() const { return dev_handle_; }
+    [[nodiscard]] size_t device_offset() const { return dev_offset_; }
+
+    bool empty() const { return num_blocks_ == 0; }
+    int32_t num_blocks() const { return num_blocks_; }
+    void set_device_offset(size_t off) { dev_offset_ = off; }
+    int32_t num_free() const { return static_cast<int32_t>(free_list_.size()); }
 };
 
 struct PageEntry {
@@ -67,7 +71,7 @@ public:
 
     void init_layer(int32_t layer_id, int32_t n_kv_heads, int32_t head_dim, DataType dtype);
 
-    void append_kv_from_tensor(int32_t layer_id, const void* K_data, const void* V_data, int32_t n_kv_heads, int32_t Skv, int32_t head_dim, DataType dtype);
+    void append_kv_from_tensor(int32_t layer_id, const void* K_data, const void* V_data, int32_t n_kv_heads, int32_t seq_len, int32_t head_dim, DataType dtype);
 
     void append_kv_from_pos(int32_t layer_id, const void* K_data, const void* V_data, int32_t n_kv_heads, int32_t head_dim, DataType dtype, int32_t global_pos, int32_t count);
 

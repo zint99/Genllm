@@ -403,6 +403,7 @@ void GraphScheduler::create_memory_pools(const std::unique_ptr<ComputeGraph>& gr
 
 void GraphScheduler::initialize_kv_cache() {
 
+    // (8192 + 16 - 1) / 16 = 512
     int32_t max_blocks = static_cast<int32_t>((config_.max_seq_len + PAGE_BLOCK_SIZE - 1) / PAGE_BLOCK_SIZE);
 
     // 按 assignment 的设备分组，每个 assignment 有正确的 dev_id
@@ -417,10 +418,11 @@ void GraphScheduler::initialize_kv_cache() {
                 if (t->op_type != OperationType::OP_TYPE_PAGED_ATTN || !t->src[1]) continue;
                 if (t->layer_id != l) continue;
 
-                int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]);
-                int32_t head_dim = static_cast<int32_t>(t->dims[3]);
-                DataType dtype = t->dtype;
-                pam.init_layer(t->layer_id, n_kv_heads, head_dim, dtype);
+                int32_t head_dim = static_cast<int32_t>(t->dims[3]); // 128
+                int32_t n_kv_heads = static_cast<int32_t>(t->src[1]->dims[1]); // 8
+
+                pam.init_layer(t->layer_id, n_kv_heads, head_dim, t->dtype);
+
                 pam.reserve_layer(t->layer_id, max_blocks);
             }
         }
