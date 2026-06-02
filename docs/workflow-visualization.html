@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genllm 推理引擎运行流程可视化</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:linear-gradient(135deg,#0c0c1d 0%,#1a1a3e 50%,#0c0c1d 100%);color:#e0e0e0;min-height:100vh}
+.container{max-width:1200px;margin:0 auto;padding:40px 20px}
+header{text-align:center;margin-bottom:50px}
+h1{font-size:2.5rem;background:linear-gradient(90deg,#00d4ff,#7b2ffc,#ff2d95);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.subtitle{color:#888;font-size:1.1rem;margin-top:10px}
+.workflow{display:flex;flex-direction:column;align-items:center;gap:20px}
+.phase{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:25px;cursor:pointer;transition:all 0.3s;position:relative}
+.phase::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--c,#00d4ff),transparent);border-radius:16px 16px 0 0}
+.phase:hover{transform:translateY(-2px);box-shadow:0 10px 40px rgba(0,0,0,0.3)}
+.phase-header{display:flex;align-items:center;gap:15px}
+.phase-num{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1.1rem;flex-shrink:0}
+.phase-title{font-size:1.2rem;font-weight:600}
+.phase-sub{color:#888;font-size:0.85rem;margin-top:3px;font-family:monospace}
+.phase-body{display:none;margin-top:20px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.1)}
+.phase.active .phase-body{display:block}
+.arrow{width:2px;height:30px;background:linear-gradient(to bottom,rgba(0,212,255,0.5),transparent)}
+.code{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:15px;margin:15px 0;font-family:'Consolas',monospace;font-size:0.85rem;line-height:1.6;overflow-x:auto;white-space:pre}
+.kw{color:#c678dd}.tp{color:#e5c07b}.fn{color:#61afef}.str{color:#98c379}.cm{color:#5c6370;font-style:italic}.num{color:#d19a66}.vr{color:#e06c75}
+.info-box{display:flex;align-items:center;gap:10px;margin:15px 0;padding:15px;background:rgba(0,212,255,0.05);border-radius:8px;border-left:3px solid #00d4ff}
+.info-icon{font-size:1.5rem}.info-label{font-weight:600;color:#00d4ff}.info-value{color:#aaa;font-size:0.9rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-top:15px}
+.card{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:15px;transition:all 0.2s}
+.card:hover{background:rgba(255,255,255,0.08)}
+.card-icon{font-size:1.8rem;margin-bottom:8px}.card-name{font-weight:600;margin-bottom:5px}.card-desc{color:#888;font-size:0.8rem}
+.flow{display:flex;align-items:center;justify-content:center;gap:15px;margin:20px 0;flex-wrap:wrap}
+.flow-node{background:linear-gradient(135deg,rgba(0,212,255,0.2),rgba(123,47,252,0.2));border:1px solid rgba(0,212,255,0.3);border-radius:12px;padding:12px 18px;text-align:center;min-width:100px}
+.flow-arrow{color:#00d4ff;font-size:1.3rem}
+table{width:100%;border-collapse:collapse;margin-top:15px}
+th,td{padding:10px 15px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)}
+th{background:rgba(0,212,255,0.1);color:#00d4ff;font-weight:600}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600}
+.tag-b{background:rgba(0,212,255,0.2);color:#00d4ff}.tag-p{background:rgba(123,47,252,0.2);color:#7b2ffc}
+.tag-g{background:rgba(0,255,136,0.2);color:#00ff88}.tag-o{background:rgba(255,165,0,0.2);color:#ffa500}
+.stats{display:flex;gap:15px;flex-wrap:wrap;margin-top:15px}
+.stat{background:rgba(255,255,255,0.05);padding:10px 15px;border-radius:8px;flex:1;min-width:120px}
+.stat-label{color:#888;font-size:0.8rem}.stat-value{font-size:1.1rem;font-weight:600;color:#00d4ff}
+.timeline{position:relative;padding-left:25px}
+.timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:linear-gradient(to bottom,#00d4ff,#7b2ffc,#ff2d95)}
+.tl-item{position:relative;margin-bottom:15px;padding-left:15px}
+.tl-item::before{content:'';position:absolute;left:-20px;top:5px;width:8px;height:8px;border-radius:50%;background:#00d4ff}
+.tl-time{color:#00d4ff;font-size:0.8rem;font-weight:600}
+.nav{position:fixed;right:15px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:100}
+.nav-dot{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.3);cursor:pointer;transition:all 0.2s}
+.nav-dot.active{background:#00d4ff;transform:scale(1.3)}
+.nav-dot:hover{background:rgba(0,212,255,0.7)}
+.ascii-art{font-family:monospace;white-space:pre;font-size:0.75rem;line-height:1.3;color:#888}
+.highlight{background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:8px;padding:15px;margin:15px 0}
+.decode-loop{background:rgba(255,45,149,0.1);border:1px dashed rgba(255,45,149,0.3);border-radius:12px;padding:20px;margin:15px 0}
+.decode-title{color:#ff2d95;font-weight:600;margin-bottom:10px}
+.decode-steps{display:flex;flex-wrap:wrap;gap:10px}
+.decode-step{background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:6px;font-size:0.85rem}
+@media(max-width:768px){h1{font-size:1.8rem}.flow{flex-direction:column}.flow-arrow{transform:rotate(90deg)}.nav{display:none}}
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+<h1>Genllm 推理引擎运行流程</h1>
+<p class="subtitle">从模型加载到文本生成的完整流程可视化 (main.cpp)</p>
+</header>
+<nav class="nav">
+<div class="nav-dot active" data-p="1" onclick="scrollToPhase(1)"></div>
+<div class="nav-dot" data-p="2" onclick="scrollToPhase(2)"></div>
+<div class="nav-dot" data-p="3" onclick="scrollToPhase(3)"></div>
+<div class="nav-dot" data-p="4" onclick="scrollToPhase(4)"></div>
+<div class="nav-dot" data-p="5" onclick="scrollToPhase(5)"></div>
+<div class="nav-dot" data-p="6" onclick="scrollToPhase(6)"></div>
+<div class="nav-dot" data-p="7" onclick="scrollToPhase(7)"></div>
+<div class="nav-dot" data-p="8" onclick="scrollToPhase(8)"></div>
+<div class="nav-dot" data-p="9" onclick="scrollToPhase(9)"></div>
+</nav>
+<div class="workflow">
+
+<!-- Phase 1 -->
+<div class="phase active" id="p1" style="--c:#00d4ff" onclick="togglePhase(1)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(0,212,255,0.2);color:#00d4ff">1</div><div><div class="phase-title">设备检测与初始化</div><div class="phase-sub">DeviceManager::instance().print_devices()</div></div></div>
+<div class="phase-body">
+<div class="info-box"><div class="info-icon">🔍</div><div><div class="info-label">检测可用后端</div><div class="info-value">CPU, CUDA, Vulkan 等硬件加速器</div></div></div>
+<div class="grid">
+<div class="card"><div class="card-icon">🖥️</div><div class="card-name">CPU Backend</div><div class="card-desc">始终可用，作为默认后端</div></div>
+<div class="card"><div class="card-icon">🎮</div><div class="card-name">CUDA Backend</div><div class="card-desc">NVIDIA GPU 加速 (可选编译)</div></div>
+<div class="card"><div class="card-icon">⚡</div><div class="card-name">Vulkan Backend</div><div class="card-desc">跨平台 GPU 计算 (可选编译)</div></div>
+</div>
+<div class="code"><span class="cm">// 获取设备管理器单例并打印设备信息</span>
+<span class="tp">DeviceManager</span>::<span class="fn">instance</span>().<span class="fn">print_devices</span>();
+
+<span class="cm">// 输出示例:</span>
+<span class="cm">// ======================= Detected Devices =======================</span>
+<span class="cm">// [0] CPU  Memory: 31.2 GB   Cores: 16</span>
+<span class="cm">// [1] CUDA Memory: 24.0 GB   RTX 4090</span></div>
+<div class="stats"><div class="stat"><div class="stat-label">后端提供者</div><div class="stat-value">BackendRegistry</div></div><div class="stat"><div class="stat-label">设备信息</div><div class="stat-value">BackendInfo</div></div><div class="stat"><div class="stat-label">管理模式</div><div class="stat-value">单例</div></div></div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 2 -->
+<div class="phase" id="p2" style="--c:#7b2ffc" onclick="togglePhase(2)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(123,47,252,0.2);color:#7b2ffc">2</div><div><div class="phase-title">GGUF 模型文件解析</div><div class="phase-sub">GGUFParser parser("models/Qwen3-0.6B-BF16.gguf")</div></div></div>
+<div class="phase-body">
+<div class="info-box"><div class="info-icon">📦</div><div><div class="info-label">GGUF 文件格式</div><div class="info-value">通用模型格式，包含元数据、张量信息和权重数据</div></div></div>
+<div class="timeline">
+<div class="tl-item"><div class="tl-time">Step 1</div><div>读取文件头 (Magic: GGUF, Version: 3)</div></div>
+<div class="tl-item"><div class="tl-time">Step 2</div><div>解析元数据键值对 - model.architecture = qwen3</div></div>
+<div class="tl-item"><div class="tl-time">Step 3</div><div>解析所有张量信息 (名称/维度/类型/偏移)</div></div>
+<div class="tl-item"><div class="tl-time">Step 4</div><div>记录数据区起始偏移</div></div>
+</div>
+<div class="stats"><div class="stat"><div class="stat-label">模型</div><div class="stat-value">Qwen3-0.6B</div></div><div class="stat"><div class="stat-label">精度</div><div class="stat-value">BF16</div></div><div class="stat"><div class="stat-label">张量数</div><div class="stat-value">~300</div></div></div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 3 -->
+<div class="phase" id="p3" style="--c:#ff2d95" onclick="togglePhase(3)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(255,45,149,0.2);color:#ff2d95">3</div><div><div class="phase-title">模型实例创建</div><div class="phase-sub">ModelFactory::CreateFromGGUF(parser.info())</div></div></div>
+<div class="phase-body">
+<div class="flow">
+<div class="flow-node">📄 GGUFInfo</div><div class="flow-arrow">→</div>
+<div class="flow-node">🔍 get_arch()</div><div class="flow-arrow">→</div>
+<div class="flow-node">📝 qwen3</div><div class="flow-arrow">→</div>
+<div class="flow-node">🏭 Registry</div><div class="flow-arrow">→</div>
+<div class="flow-node">🤖 Qwen3Model</div>
+</div>
+<div class="code"><span class="cm">// 工厂模式: s_registry["qwen3"] -&gt; make_unique&lt;Qwen3Model&gt;()</span>
+<span class="tp">std::unique_ptr&lt;ModelBase&gt;</span> model = <span class="tp">ModelFactory</span>::<span class="fn">CreateFromGGUF</span>(parser.<span class="fn">info</span>());
+
+<span class="cm">// ModelBase 接口:</span>
+<span class="cm">//   vocab_size()   -&gt; 151936</span>
+<span class="cm">//   max_seq_len()  -&gt; 32768</span>
+<span class="cm">//   build_graph()  -&gt; 构建计算图</span></div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 4 -->
+<div class="phase" id="p4" style="--c:#00ff88" onclick="togglePhase(4)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(0,255,136,0.2);color:#00ff88">4</div><div><div class="phase-title">计算图构建</div><div class="phase-sub">auto graph = model-&gt;build_graph(parser.info())</div></div></div>
+<div class="phase-body">
+<div class="ascii-art">┌─────────────────────────────────────────────────┐
+│                  Input Token IDs                 │
+└───────────────────────┬─────────────────────────┘
+                        ▼
+┌─────────────────────────────────────────────────┐
+│           Token Embedding (151936 x 1024)        │
+└───────────────────────┬─────────────────────────┘
+                        ▼
+┌─────────────────────────────────────────────────┐
+│         Transformer Block x 28                   │
+│  ┌──────────┐  ┌──────────────┐  ┌────────────┐ │
+│  │ RMSNorm  │→ │ GQA          │→ │ SwiGLU FFN │ │
+│  │ (Pre-Attn)│  │ (16Q + 4KV) │  │ (up+gate)  │ │
+│  └──────────┘  └──────────────┘  └────────────┘ │
+└───────────────────────┬─────────────────────────┘
+                        ▼
+┌─────────────────────────────────────────────────┐
+│           RMSNorm → LM Head → Logits             │
+└─────────────────────────────────────────────────┘</div>
+<div class="stats"><div class="stat"><div class="stat-label">模型层数</div><div class="stat-value">28</div></div><div class="stat"><div class="stat-label">隐藏维度</div><div class="stat-value">1024</div></div><div class="stat"><div class="stat-label">注意力头</div><div class="stat-value">16Q / 4KV</div></div><div class="stat"><div class="stat-label">词表大小</div><div class="stat-value">151936</div></div></div>
+<div class="highlight">💡 计算图使用 ComputeGraph 表示，节点为 Tensor，边表示数据依赖。支持动态维度。</div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 5 -->
+<div class="phase" id="p5" style="--c:#ffa500" onclick="togglePhase(5)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(255,165,0,0.2);color:#ffa500">5</div><div><div class="phase-title">调度器配置与创建</div><div class="phase-sub">GraphScheduler scheduler(std::move(graph), sched_cfg)</div></div></div>
+<div class="phase-body">
+<table>
+<tr><th>参数</th><th>值</th><th>说明</th></tr>
+<tr><td>vocab_size</td><td><span class="tag tag-b">model-&gt;vocab_size()</span></td><td>词表大小，用于采样</td></tr>
+<tr><td>max_seq_len</td><td><span class="tag tag-g">8192</span></td><td>上下文长度，影响激活池大小</td></tr>
+<tr><td>top_p</td><td><span class="tag tag-p">0.9</span></td><td>核采样: 保留概率前 90% 的 token</td></tr>
+<tr><td>temperature</td><td><span class="tag tag-o">0.5</span></td><td>采样温度: 越低越确定</td></tr>
+<tr><td>memory_headroom</td><td><span class="tag tag-b">0.05</span></td><td>预留 5% 设备内存避免 OOM</td></tr>
+<tr><td>kv_cache_pool_factor</td><td><span class="tag tag-g">1.0</span></td><td>KV Cache 池 = 需求 x factor</td></tr>
+<tr><td>activation_pool_factor</td><td><span class="tag tag-g">1.0</span></td><td>激活池 = 需求 x factor</td></tr>
+</table>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 6 -->
+<div class="phase" id="p6" style="--c:#00d4ff" onclick="togglePhase(6)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(0,212,255,0.2);color:#00d4ff">6</div><div><div class="phase-title">图调度与设备分配</div><div class="phase-sub">scheduler.schedule(DeviceManager::instance().get_devices())</div></div></div>
+<div class="phase-body">
+<div class="info-box"><div class="info-icon">🧠</div><div><div class="info-label">智能调度算法</div><div class="info-value">根据设备可用内存和算力，将模型层分配到最优设备，支持多GPU流水线</div></div></div>
+<div class="timeline">
+<div class="tl-item"><div class="tl-time">Step 1</div><div>估算每层内存开销: weight + activation + kv_cache</div></div>
+<div class="tl-item"><div class="tl-time">Step 2</div><div>贪心算法: 尽量将连续层分配到同一设备</div></div>
+<div class="tl-item"><div class="tl-time">Step 3</div><div>assign_global_nodes: Embedding/LMHead → CPU</div></div>
+<div class="tl-item"><div class="tl-time">Step 4</div><div>insert_copy_edges: 跨设备插入 D2H/H2D 拷贝</div></div>
+<div class="tl-item"><div class="tl-time">Step 5</div><div>create_memory_pools: 为每个设备创建内存池</div></div>
+<div class="tl-item"><div class="tl-time">Step 6</div><div>initialize_kv_cache: 预分配 KV Cache</div></div>
+</div>
+<div class="grid">
+<div class="card"><div class="card-icon">📊</div><div class="card-name">LayerCost</div><div class="card-desc">每层内存开销估算</div></div>
+<div class="card"><div class="card-icon">🗺️</div><div class="card-name">LayerAssignment</div><div class="card-desc">层到设备的映射</div></div>
+<div class="card"><div class="card-icon">💾</div><div class="card-name">MemoryPool</div><div class="card-desc">预分配连续内存</div></div>
+<div class="card"><div class="card-icon">🗄️</div><div class="card-name">KV Cache</div><div class="card-desc">注意力缓存</div></div>
+</div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 7 -->
+<div class="phase" id="p7" style="--c:#7b2ffc" onclick="togglePhase(7)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(123,47,252,0.2);color:#7b2ffc">7</div><div><div class="phase-title">权重加载到设备</div><div class="phase-sub">manager-&gt;load_weights(parser, scheduler.graph())</div></div></div>
+<div class="phase-body">
+<div class="flow">
+<div class="flow-node">📄 GGUF</div><div class="flow-arrow">→</div>
+<div class="flow-node">🔍 read_data()</div><div class="flow-arrow">→</div>
+<div class="flow-node">🔄 类型转换</div><div class="flow-arrow">→</div>
+<div class="flow-node">💾 设备内存</div>
+</div>
+<div class="code"><span class="cm">// 遍历图中所有权重张量</span>
+<span class="kw">for</span> (<span class="kw">auto</span>&amp; tensor : graph.weight_tensors) {
+    <span class="cm">// 从文件读取原始数据</span>
+    parser.<span class="fn">read_tensor_data</span>(info.offset, tensor.data, info.bytes());
+    <span class="cm">// 如果目标是 GPU，异步拷贝到显存</span>
+    <span class="kw">if</span> (tensor.device != Device::CPU) <span class="fn">copy_to_device</span>(tensor);
+}</div>
+<div class="stats"><div class="stat"><div class="stat-label">模型大小</div><div class="stat-value">~1.2 GB</div></div><div class="stat"><div class="stat-label">数据类型</div><div class="stat-value">BF16</div></div><div class="stat"><div class="stat-label">量化支持</div><div class="stat-value">Q4/Q5/Q8</div></div></div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 8 -->
+<div class="phase" id="p8" style="--c:#ff2d95" onclick="togglePhase(8)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(255,45,149,0.2);color:#ff2d95">8</div><div><div class="phase-title">执行器与分词器初始化</div><div class="phase-sub">Executor executor(scheduler) + Tokenizer::from_gguf(parser)</div></div></div>
+<div class="phase-body">
+<div class="grid">
+<div class="card"><div class="card-icon">⚡</div><div class="card-name">Executor</div><div class="card-desc">绑定调度器+内存管理器<br>构建设备ID映射<br>识别persistent layers<br>分类step/persistent层<br>建立维度快照</div></div>
+<div class="card"><div class="card-icon">📝</div><div class="card-name">Tokenizer</div><div class="card-desc">从GGUF加载词表<br>BPE分词器<br>encode: 文本→IDs<br>decode: IDs→文本<br>特殊token处理</div></div>
+</div>
+<div class="code"><span class="tp">Executor</span> <span class="vr">executor</span>(scheduler);
+<span class="tp">Tokenizer</span> <span class="vr">tokenizer</span> = <span class="tp">Tokenizer</span>::<span class="fn">from_gguf</span>(parser);
+
+<span class="cm">// 构造 ChatML 格式的 prompt</span>
+<span class="kw">const</span> <span class="tp">std::string</span> <span class="vr">user_prompt</span> = <span class="str">"中国首都是哪里？"</span>;
+<span class="tp">std::string</span> <span class="vr">chat_prompt</span> = format(ChatML, user_prompt);
+
+<span class="cm">// 编码为 token IDs</span>
+<span class="tp">std::vector&lt;int32_t&gt;</span> <span class="vr">tokens</span> = tokenizer.<span class="fn">encode</span>(chat_prompt);</div>
+</div></div>
+<div class="arrow"></div>
+
+<!-- Phase 9 -->
+<div class="phase" id="p9" style="--c:#00ff88" onclick="togglePhase(9)">
+<div class="phase-header"><div class="phase-num" style="background:rgba(0,255,136,0.2);color:#00ff88">9</div><div><div class="phase-title">自回归文本生成</div><div class="phase-sub">RUNNING_TIME(executor.generate(tokens, 512, eos_id, &amp;tokenizer))</div></div></div>
+<div class="phase-body">
+<div class="info-box"><div class="info-icon">🚀</div><div><div class="info-label">生成流程</div><div class="info-value">Prefill (并行处理prompt) → Decode (逐token生成)</div></div></div>
+<div class="timeline">
+<div class="tl-item"><div class="tl-time">Phase 1: Prefill</div><div>并行处理所有 prompt tokens → 生成第一个新 token</div></div>
+<div class="tl-item"><div class="tl-time">Phase 2: Decode Loop</div><div>自回归循环: forward() → sample() → decode_step()</div></div>
+<div class="tl-item"><div class="tl-time">采样策略</div><div>Top-p (核采样) + Temperature 控制随机性</div></div>
+<div class="tl-item"><div class="tl-time">终止条件</div><div>达到 max_tokens 或遇到 EOS token</div></div>
+</div>
+<div class="decode-loop">
+<div class="decode-title">🔄 Decode Loop 详解</div>
+<div class="decode-steps">
+<div class="decode-step">1. resolve_dims(seq_pos, 1)</div>
+<div class="decode-step">2. bind_input(token_id)</div>
+<div class="decode-step">3. forward()</div>
+<div class="decode-step">4. sample_top_p()</div>
+<div class="decode-step">5. append_token()</div>
+<div class="decode-step">6. seq_pos++</div>
+<div class="decode-step">7. check EOS</div>
+</div></div>
+<div class="code"><span class="cm">// 生成主循环</span>
+<span class="tp">std::vector&lt;int32_t&gt;</span> <span class="vr">result</span> = executor.<span class="fn">generate</span>(
+    tokens,     <span class="cm">// prompt token IDs</span>
+    512,        <span class="cm">// max_new_tokens</span>
+    eos_id,     <span class="cm">// 终止 token</span>
+    &amp;tokenizer  <span class="cm">// 用于实时打印生成文本</span>
+);
+
+<span class="cm">// 输出: 北京是中国的首都...</span></div>
+<div class="stats"><div class="stat"><div class="stat-label">最大生成</div><div class="stat-value">512 tokens</div></div><div class="stat"><div class="stat-label">采样方式</div><div class="stat-value">Top-p 0.9</div></div><div class="stat"><div class="stat-label">温度</div><div class="stat-value">0.5</div></div></div>
+</div></div>
+
+</div>
+</div>
+
+<script>
+function togglePhase(id) {
+  var el = document.getElementById('p' + id);
+  el.classList.toggle('active');
+  document.querySelectorAll('.nav-dot').forEach(function(d) {
+    d.classList.toggle('active', d.getAttribute('data-p') == id && el.classList.contains('active'));
+  });
+}
+function scrollToPhase(id) {
+  var el = document.getElementById('p' + id);
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+  el.classList.add('active');
+  document.querySelectorAll('.nav-dot').forEach(function(d) {
+    d.classList.toggle('active', d.getAttribute('data-p') == id);
+  });
+}
+</script>
+</body>
+</html>
