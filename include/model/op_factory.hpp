@@ -93,25 +93,40 @@ struct OpFactory {
         int32_t layer_id = -1,
         bool transpose = false
     ){
-        Tensor* t = new Tensor();
-        t->name  = name;
-        t->dtype = weight_info->dtype;  // eg:BF16
-        t->type  = TensorType::TENSOR_TYPE_ACTIVATION;
-        t->op_type = OperationType::OP_TYPE_EMBEDDING;
+      LOG_INFO(std::format(
+          "Embedding: input='{}' [{}], weight='{}' [{}x{}], transpose={}",
+          input_ids->name,
+          input_ids->dims[0] > 0
+              ? std::format("{},{}", input_ids->dims[0], input_ids->dims[1])
+              : "dynamic",
+          weight_info->name, weight_info->dimensions[0],
+          weight_info->dimensions[1], transpose));
 
-        t->dims[0] = input_ids->dims[0];  // batch
-        t->dims[1] = input_ids->dims[1];  // seq_len
+      Tensor *t = new Tensor();
+      t->name = name;
+      t->dtype = weight_info->dtype; // eg:BF16
+      t->type = TensorType::TENSOR_TYPE_ACTIVATION;
+      t->op_type = OperationType::OP_TYPE_EMBEDDING;
 
-        t->dims[2] = transpose ? weight_info->dimensions[0]:weight_info->dimensions[1];  // hidden_size
+      t->dims[0] = input_ids->dims[0]; // batch
+      t->dims[1] = input_ids->dims[1]; // seq_len
 
-        t->src[0]  = input_ids;
-        t->src[1]  = OpFactory::weight_placeholder(weight_info, weight_info->name,layer_id);
+      t->dims[2] = transpose ? weight_info->dimensions[0]
+                             : weight_info->dimensions[1]; // hidden_size
 
-        t->op_params[0] = transpose ? 1 : 0;  // 转置标志
+      t->src[0] = input_ids;
+      t->src[1] = OpFactory::weight_placeholder(weight_info, weight_info->name,
+                                                layer_id);
 
-        OpFactory::compute_strides(t);
+      t->op_params[0] = transpose ? 1 : 0; // 转置标志
 
-        return t;
+      OpFactory::compute_strides(t);
+
+      Tensor *output = t;
+      LOG_INFO(std::format("Embedding: output='{}' [{}x{}x{}]", output->name,
+                           output->dims[0], output->dims[1], output->dims[2]));
+
+      return t;
     }
     // ──────────────────────────────────────────────────────────────────
     // rms_norm: y = (x / sqrt(mean(x²)+eps)) * weight
