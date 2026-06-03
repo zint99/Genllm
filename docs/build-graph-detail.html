@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwen3Model::build_graph 详解</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0a0a1a;color:#d0d0e0;line-height:1.7;min-height:100vh}
+.wrap{max-width:1100px;margin:0 auto;padding:30px 20px}
+h1{font-size:2rem;text-align:center;background:linear-gradient(90deg,#00d4ff,#a855f7,#ff6b9d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px}
+.sub{text-align:center;color:#666;font-size:0.95rem;margin-bottom:35px;font-family:monospace}
+/* Phase cards */
+.phase{background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.08);border-radius:14px;margin-bottom:22px;overflow:hidden;transition:all .3s}
+.phase:hover{border-color:rgba(255,255,255,0.15)}
+.phase-head{display:flex;align-items:center;gap:14px;padding:18px 22px;cursor:pointer;user-select:none}
+.phase-num{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;flex-shrink:0}
+.phase-title{font-size:1.1rem;font-weight:600}
+.phase-desc{color:#777;font-size:0.82rem;font-family:monospace;margin-top:2px}
+.phase-body{padding:0 22px 20px;display:none}
+.phase.open .phase-body{display:block}
+.arrow-icon{margin-left:auto;color:#555;transition:transform .2s;font-size:1.2rem}
+.phase.open .arrow-icon{transform:rotate(90deg)}
+/* Code block */
+.code{background:#0d0d20;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 16px;font-family:'Consolas','Fira Code',monospace;font-size:0.82rem;line-height:1.7;overflow-x:auto;white-space:pre;margin:12px 0}
+.kw{color:#c678dd}.tp{color:#e5c07b}.fn{color:#61afef}.str{color:#98c379}.cm{color:#5c6370;font-style:italic}.num{color:#d19a66}.vr{color:#e06c75}.op{color:#56b6c2}
+/* Tensor shape badge */
+.shape{display:inline-block;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.25);border-radius:6px;padding:2px 8px;font-family:monospace;font-size:0.78rem;color:#00d4ff;margin:0 2px}
+/* Flow diagram */
+.flow{display:flex;align-items:center;justify-content:center;gap:10px;margin:16px 0;flex-wrap:wrap}
+.flow-box{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;font-size:0.85rem}
+.flow-box.highlight{border-color:rgba(0,212,255,0.4);background:rgba(0,212,255,0.06)}
+.flow-arrow{color:#00d4ff;font-size:1.1rem}
+/* Two-column layout */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:12px 0}
+.col{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:14px}
+.col-title{font-weight:600;color:#a855f7;margin-bottom:8px;font-size:0.9rem}
+/* Detail box */
+.info{background:rgba(168,85,247,0.05);border-left:3px solid #a855f7;border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0;font-size:0.9rem}
+.info-blue{background:rgba(0,212,255,0.05);border-left-color:#00d4ff}
+.info-green{background:rgba(0,255,136,0.05);border-left-color:#00ff88}
+.info-pink{background:rgba(255,107,157,0.05);border-left-color:#ff6b9d}
+/* Table */
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:0.85rem}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.06)}
+th{color:#a855f7;font-weight:600;background:rgba(168,85,247,0.06)}
+/* Section divider */
+.section-divider{text-align:center;padding:20px 0;font-size:1.2rem;color:#555;letter-spacing:8px}
+/* Big arrow */
+.big-arrow{text-align:center;padding:10px 0;color:#00d4ff;font-size:1.5rem}
+/* Tag */
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;margin-right:4px}
+.tag-input{background:rgba(0,212,255,0.15);color:#00d4ff}
+.tag-weight{background:rgba(168,85,247,0.15);color:#a855f7}
+.tag-act{background:rgba(0,255,136,0.15);color:#00ff88}
+.tag-cache{background:rgba(255,165,0,0.15);color:#ffa500}
+/* Layer block */
+.layer-block{border:2px dashed rgba(168,85,247,0.2);border-radius:14px;padding:18px;margin:12px 0;position:relative}
+.layer-label{position:absolute;top:-12px;left:16px;background:#0a0a1a;padding:0 8px;color:#a855f7;font-weight:600;font-size:0.85rem}
+/* Responsive */
+@media(max-width:768px){.cols{grid-template-columns:1fr}.flow{flex-direction:column}.flow-arrow{transform:rotate(90deg)}}
+/* Nav */
+.nav{position:fixed;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:100}
+.nav-dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.2);cursor:pointer;transition:all .2s}
+.nav-dot.active{background:#00d4ff;transform:scale(1.4)}
+.nav-dot:hover{background:rgba(0,212,255,0.6)}
+/* ASCII architecture */
+.arch-diagram{font-family:monospace;white-space:pre;font-size:0.78rem;line-height:1.4;color:#888;background:#0d0d20;border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:16px;overflow-x:auto;margin:12px 0}
+</style>
+</head>
+<body>
+<nav class="nav">
+<div class="nav-dot active" data-p="0" onclick="go(0)"></div>
+<div class="nav-dot" data-p="1" onclick="go(1)"></div>
+<div class="nav-dot" data-p="2" onclick="go(2)"></div>
+<div class="nav-dot" data-p="3" onclick="go(3)"></div>
+<div class="nav-dot" data-p="4" onclick="go(4)"></div>
+<div class="nav-dot" data-p="5" onclick="go(5)"></div>
+<div class="nav-dot" data-p="6" onclick="go(6)"></div>
+<div class="nav-dot" data-p="7" onclick="go(7)"></div>
+<div class="nav-dot" data-p="8" onclick="go(8)"></div>
+</nav>
+<div class="wrap">
+
+<h1>Qwen3Model::build_graph</h1>
+<p class="sub">从输入 token_ids 到输出 logits 的完整计算图构建过程</p>
+
+<!-- 总览 -->
+<div class="phase open" id="p0">
+<div class="phase-head" onclick="toggle(0)">
+<div class="phase-num" style="background:rgba(0,212,255,0.15);color:#00d4ff">&#9672;</div>
+<div><div class="phase-title">总览: build_graph 全流程</div><div class="phase-desc">Qwen3Model::build_graph(const GGUFInfo&amp; info) → unique_ptr&lt;ComputeGraph&gt;</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="arch-diagram">input_ids [1, seq_len]
+    |
+    v
+[Step 1] parse_config()          -- 从 GGUF 元数据提取模型超参
+[Step 2] 创建 input_ids 占位符     -- 计算图入口
+[Step 3] 创建 rope_cos/sin 缓存    -- 旋转位置编码预计算表
+[Step 4] embedding_lookup          -- token → hidden 向量
+[Step 5] 28x Transformer Layer     -- 核心计算 (Attention + FFN)
+[Step 6] final_norm + LM Head      -- 归一化 + 词表投影
+[Step 7] build_from_outputs({logits}) -- 反向遍历构建图
+    |
+    v
+logits [1, seq_len, 151936]</div>
+<div class="info info-blue">整个函数只构建计算图（声明式），不执行任何计算。所有 Tensor 的 data 指针为 nullptr，实际内存由调度器在 schedule() 阶段分配。</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 1 -->
+<div class="phase" id="p1">
+<div class="phase-head" onclick="toggle(1)">
+<div class="phase-num" style="background:rgba(168,85,247,0.15);color:#a855f7">1</div>
+<div><div class="phase-title">parse_config() - 解析模型配置</div><div class="phase-desc">从 GGUF 元数据中提取 Qwen3 超参数</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="code"><span class="fn">this->parse_config</span>(info);
+<span class="cm">// 从 info.metadata (键值对) 中读取:</span>
+config_.hidden_size       = <span class="fn">meta.value</span>(<span class="str">"qwen3.embedding_length"</span>, <span class="num">-1</span>);
+config_.num_layers        = <span class="fn">meta.value</span>(<span class="str">"qwen3.block_count"</span>, <span class="num">28</span>);
+config_.num_heads         = <span class="fn">meta.value</span>(<span class="str">"qwen3.attention.head_count"</span>, <span class="num">16</span>);
+config_.num_kv_heads      = <span class="fn">meta.value</span>(<span class="str">"qwen3.attention.head_count_kv"</span>, <span class="num">8</span>);
+config_.head_dim          = <span class="fn">meta.value</span>(<span class="str">"qwen3.attention.key_length"</span>, <span class="num">128</span>);
+config_.intermediate_size = <span class="fn">meta.value</span>(<span class="str">"qwen3.feed_forward_length"</span>, <span class="num">3072</span>);
+config_.rms_norm_eps      = <span class="fn">meta.value</span>(<span class="str">"qwen3.attention.layer_norm_rms_epsilon"</span>, <span class="num">1e-6f</span>);
+config_.rope_theta        = <span class="fn">meta.value</span>(<span class="str">"qwen3.rope.freq_base"</span>, <span class="num">1000000.0f</span>);
+config_.max_seq_len       = <span class="fn">meta.value</span>(<span class="str">"qwen3.context_length"</span>, <span class="num">40960</span>);
+<span class="cm">// vocab_size: 优先从 tokenizer.ggml.tokens 数组长度获取</span></div>
+<table>
+<tr><th>参数</th><th>值</th><th>GGUF 键名</th></tr>
+<tr><td>hidden_size</td><td>1024</td><td>qwen3.embedding_length</td></tr>
+<tr><td>num_layers</td><td>28</td><td>qwen3.block_count</td></tr>
+<tr><td>num_heads (Q)</td><td>16</td><td>qwen3.attention.head_count</td></tr>
+<tr><td>num_kv_heads (KV)</td><td>8</td><td>qwen3.attention.head_count_kv</td></tr>
+<tr><td>head_dim</td><td>128</td><td>qwen3.attention.key_length</td></tr>
+<tr><td>intermediate_size</td><td>3072</td><td>qwen3.feed_forward_length</td></tr>
+<tr><td>rms_norm_eps</td><td>1e-6</td><td>qwen3.attention.layer_norm_rms_epsilon</td></tr>
+<tr><td>rope_theta</td><td>1000000</td><td>qwen3.rope.freq_base</td></tr>
+<tr><td>max_seq_len</td><td>40960</td><td>qwen3.context_length</td></tr>
+<tr><td>vocab_size</td><td>151936</td><td>tokenizer.ggml.tokens.size()</td></tr>
+</table>
+<div class="info info-green">GQA (Grouped Query Attention): 16 个 Query 头共享 8 个 KV 头，每 2 个 Q 头共享 1 组 KV，节省一半 KV Cache。</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 2 -->
+<div class="phase" id="p2">
+<div class="phase-head" onclick="toggle(2)">
+<div class="phase-num" style="background:rgba(0,212,255,0.15);color:#00d4ff">2</div>
+<div><div class="phase-title">输入占位符 + RoPE 缓存 + Embedding</div><div class="phase-desc">创建计算图的三个入口节点</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="cols">
+<div class="col">
+<div class="col-title">2a. input_ids 占位符</div>
+<div class="code"><span class="tp">Tensor*</span> input_ids = <span class="tp">OpFactory</span>::<span class="fn">placeholder</span>(
+    DataType::GGML_TYPE_I32,
+    TensorType::TENSOR_TYPE_INPUT,
+    {<span class="num">1</span>, <span class="num">-1</span>},  <span class="cm">// [B=1, seq_len=动态]</span>
+    <span class="str">"input_ids"</span>, <span class="num">-1</span>);</div>
+<div class="info info-blue"><span class="tag tag-input">INPUT</span> data=nullptr, 执行时由 Executor 绑定实际 token IDs</div>
+</div>
+<div class="col">
+<div class="col-title">2b. RoPE 位置编码缓存</div>
+<div class="code"><span class="kw">auto</span> [rope_cos, rope_sin] = <span class="tp">OpFactory</span>::<span class="fn">rope_cache</span>(
+    config_.max_seq_len,  <span class="cm">// 40960</span>
+    config_.head_dim,     <span class="cm">// 128</span>
+    config_.rope_theta,   <span class="cm">// 1000000</span>
+    DataType::GGML_TYPE_F32,
+    <span class="str">"rope"</span>, <span class="num">-1</span>);</div>
+<div class="info info-green"><span class="tag tag-weight">WEIGHT</span> 预计算 cos/sin 表，形状 [max_seq_len, head_dim/2]</div>
+</div>
+</div>
+<div style="margin-top:16px">
+<div class="col-title">2c. Token Embedding 查表</div>
+<div class="code"><span class="kw">const</span> <span class="tp">TensorInfo*</span> embd_weight_info = <span class="tp">OpFactory</span>::<span class="fn">find_tensor</span>(info, <span class="str">"token_embd.weight"</span>);
+<span class="cm">// embd_weight_info: [vocab_size=151936, hidden_size=1024]</span>
+
+<span class="cm">// [B, seq_len] + [vocab_size, hidden_size] → [B, seq_len, hidden_size]</span>
+<span class="tp">Tensor*</span> x_in = <span class="tp">OpFactory</span>::<span class="fn">embedding_lookup</span>(
+    input_ids, embd_weight_info, <span class="str">"x_in"</span>, <span class="num">-1</span>, <span class="kw">false</span>);</div>
+</div>
+<div class="flow">
+<div class="flow-box"><span class="tag tag-input">INPUT</span><br>input_ids<br><span class="shape">[1, S]</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight"><span class="tag tag-act">OP</span><br>Embedding<br><span class="shape">lookup</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box"><span class="tag tag-act">ACT</span><br>x_in<br><span class="shape">[1, S, 1024]</span></div>
+</div>
+<div class="info">S = seq_len (动态维度, -1), 在执行时由实际输入长度决定</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 3: Transformer Layer -->
+<div class="phase" id="p3">
+<div class="phase-head" onclick="toggle(3)">
+<div class="phase-num" style="background:rgba(255,107,157,0.15);color:#ff6b9d">3</div>
+<div><div class="phase-title">28 层 Transformer 循环</div><div class="phase-desc">for (layer_idx = 0..27) build_qwen3_layer(...)</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="code"><span class="tp">Tensor*</span> prev_output = x_in;  <span class="cm">// [1, seq_len, 1024]</span>
+
+<span class="kw">for</span> (<span class="kw">int</span> layer_idx = <span class="num">0</span>; layer_idx < config_.num_layers; ++layer_idx) {
+    prev_output = <span class="kw">this</span>-><span class="fn">build_qwen3_layer</span>(prev_output, info, layer_idx, ...);
+}
+<span class="cm">// 每层: [1, S, 1024] → [1, S, 1024] (形状不变)</span></div>
+<div class="flow">
+<div class="flow-box">x_in<br><span class="shape">[1,S,1024]</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">Layer 0</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">Layer 1</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box" style="color:#555">...</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">Layer 27</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box">prev_output<br><span class="shape">[1,S,1024]</span></div>
+</div>
+<div class="info info-pink">每层内部结构完全相同，但权重不同（每层独立的 QKV/FFN 权重）。下面详解单层内部结构。</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 3-detail: Single Layer -->
+<div class="phase" id="p4">
+<div class="phase-head" onclick="toggle(4)">
+<div class="phase-num" style="background:rgba(168,85,247,0.15);color:#a855f7">3*</div>
+<div><div class="phase-title">单层详解: build_qwen3_layer</div><div class="phase-desc">Self-Attention 分支 + SwiGLU FFN 分支，双重残差连接</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+
+<!-- Attention 分支 -->
+<div class="layer-block">
+<div class="layer-label">&#9654; Self-Attention 分支</div>
+
+<div style="margin-top:8px"><strong>1.1 Pre-Attention RMSNorm</strong></div>
+<div class="code"><span class="cm">// blk.{i}.attn_norm.weight [1024]</span>
+<span class="tp">Tensor*</span> x_norm = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(input, attn_norm_info, eps, <span class="str">"x_norm"</span>, i);
+<span class="cm">// [1, S, 1024] → [1, S, 1024]</span>
+<span class="cm">// 公式: y = x / sqrt(mean(x^2) + eps) * weight</span></div>
+
+<div><strong>1.2 Q / K / V 线性投影</strong></div>
+<div class="code"><span class="tp">Tensor*</span> q_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(x_norm, q_weight, <span class="str">"q_flat"</span>, i, <span class="kw">true</span>);
+<span class="cm">// [1, S, 1024] @ [2048, 1024]^T → [1, S, 2048]  (16 heads x 128)</span>
+
+<span class="tp">Tensor*</span> k_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(x_norm, k_weight, <span class="str">"k_flat"</span>, i, <span class="kw">true</span>);
+<span class="cm">// [1, S, 1024] @ [1024, 1024]^T → [1, S, 1024]  (8 kv_heads x 128)</span>
+
+<span class="tp">Tensor*</span> v_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(x_norm, v_weight, <span class="str">"v_flat"</span>, i, <span class="kw">true</span>);
+<span class="cm">// [1, S, 1024] @ [1024, 1024]^T → [1, S, 1024]  (8 kv_heads x 128)</span></div>
+
+<div class="info info-blue">transpose=true: 权重存储为 [out, in]，数学上等价于 x @ W^T。实际实现时不物理转置，而是调整访问模式。</div>
+
+<div><strong>1.3 Reshape + Permute → 4D</strong></div>
+<div class="code"><span class="tp">Tensor*</span> q_4d = <span class="tp">OpFactory</span>::<span class="fn">reshape_permute</span>(q_flat,
+    {<span class="num">1</span>, <span class="num">-1</span>, num_heads, head_dim},   <span class="cm">// [1, S, 16, 128]</span>
+    {<span class="num">0</span>, <span class="num">2</span>, <span class="num">1</span>, <span class="num">3</span>},                  <span class="cm">// → [1, 16, S, 128]</span>
+    <span class="str">"q_4d"</span>, i);
+
+<span class="tp">Tensor*</span> k_4d = <span class="tp">OpFactory</span>::<span class="fn">reshape_permute</span>(k_flat,
+    {<span class="num">1</span>, <span class="num">-1</span>, num_kv_heads, head_dim}, <span class="cm">// [1, S, 8, 128]</span>
+    {<span class="num">0</span>, <span class="num">2</span>, <span class="num">1</span>, <span class="num">3</span>},                  <span class="cm">// → [1, 8, S, 128]</span>
+    <span class="str">"k_4d"</span>, i);</div>
+
+<div class="info">Permute {0,2,1,3} 将 seq_len 维度移到第 2 位，heads 移到第 1 位，形成 [B, heads, seq, head_dim] 布局，适配注意力计算。</div>
+
+<div><strong>1.4 Per-head RMSNorm</strong></div>
+<div class="code"><span class="cm">// Qwen3 特有: 对每个 head 的 head_dim 维度做 RMSNorm</span>
+<span class="tp">Tensor*</span> q_normed = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(q_4d, q_norm_info, eps, <span class="str">"q_normed"</span>, i);
+<span class="cm">// [1, 16, S, 128], weight=[128] → [1, 16, S, 128]</span>
+
+<span class="tp">Tensor*</span> k_normed = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(k_4d, k_norm_info, eps, <span class="str">"k_normed"</span>, i);
+<span class="cm">// [1, 8, S, 128], weight=[128] → [1, 8, S, 128]</span></div>
+
+<div><strong>1.5 旋转位置编码 (RoPE)</strong></div>
+<div class="code"><span class="kw">auto</span> [q_rope, k_rope] = <span class="tp">OpFactory</span>::<span class="fn">apply_rope</span>(
+    q_normed, k_normed, rope_cos, rope_sin, <span class="kw">nullptr</span>, <span class="str">""</span>, i);
+<span class="cm">// 对 head_dim 维度做旋转: [cos -sin; sin cos] * [q_even, q_odd]</span>
+<span class="cm">// 注入位置信息，使模型感知 token 顺序</span></div>
+
+<div><strong>1.6 Scaled Dot-Product Attention (GQA)</strong></div>
+<div class="code"><span class="tp">Tensor*</span> attn_4d = <span class="tp">OpFactory</span>::<span class="fn">Attention</span>(
+    q_rope, k_rope, v_4d,
+    <span class="kw">nullptr</span>,                    <span class="cm">// mask (因果mask在后端生成)</span>
+    <span class="num">1.0f</span>/<span class="fn">sqrt</span>(<span class="num">128.0f</span>),          <span class="cm">// scale = 1/sqrt(head_dim)</span>
+    <span class="kw">true</span>,                       <span class="cm">// causal = true</span>
+    <span class="num">16</span>/<span class="num">8</span>,                       <span class="cm">// num_kv_groups = 2 (GQA)</span>
+    <span class="str">"attn_4d"</span>,
+    OP_TYPE_PAGED_ATTN,         <span class="cm">// 支持 PagedAttention</span>
+    i);
+<span class="cm">// Q [1,16,S,128] @ K^T [1,8,S,128] → attn [1,16,S,S] @ V [1,8,S,128]</span>
+<span class="cm">// → [1, 16, S, 128]</span></div>
+
+<div class="info info-green">GQA: 16 个 Q 头分成 8 组，每组 2 个 Q 头共享 1 个 KV 头。K/V 会被 repeat 2 次再计算注意力。</div>
+
+<div><strong>1.7 合并多头 → 输出投影 → 残差</strong></div>
+<div class="code"><span class="cm">// [1, 16, S, 128] → permute{0,2,1,3} → [1, S, 16, 128] → reshape → [1, S, 2048]</span>
+<span class="tp">Tensor*</span> attn_flat = <span class="tp">OpFactory</span>::<span class="fn">permute_reshape</span>(attn_4d,
+    {<span class="num">0</span>,<span class="num">2</span>,<span class="num">1</span>,<span class="num">3</span>}, {<span class="num">1</span>, <span class="num">-1</span>, num_heads * head_dim}, <span class="str">"attn_flat"</span>, i);
+
+<span class="cm">// [1, S, 2048] @ [1024, 2048]^T → [1, S, 1024]</span>
+<span class="tp">Tensor*</span> attn_out = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(attn_flat, attn_out_weight, <span class="str">"attn_out"</span>, i, <span class="kw">true</span>);
+
+<span class="cm">// 残差连接 1</span>
+<span class="tp">Tensor*</span> ffn_input = <span class="tp">OpFactory</span>::<span class="fn">add</span>(attn_out, input, <span class="str">"ffn_input"</span>, i);
+<span class="cm">// [1, S, 1024] + [1, S, 1024] → [1, S, 1024]</span></div>
+</div>
+
+<!-- FFN 分支 -->
+<div class="layer-block" style="margin-top:20px">
+<div class="layer-label">&#9654; SwiGLU FFN 分支</div>
+
+<div style="margin-top:8px"><strong>2.1 Post-Attention RMSNorm</strong></div>
+<div class="code"><span class="tp">Tensor*</span> ffn_normed = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(ffn_input, ffn_norm_info, eps, <span class="str">"ffn_normed"</span>, i);
+<span class="cm">// blk.{i}.ffn_norm.weight [1024]</span>
+<span class="cm">// [1, S, 1024] → [1, S, 1024]</span></div>
+
+<div><strong>2.2 SwiGLU: Gate + Up 并行投影</strong></div>
+<div class="code"><span class="cm">// gate: [1, S, 1024] @ [3072, 1024]^T → [1, S, 3072]</span>
+<span class="tp">Tensor*</span> gate = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(ffn_normed, gate_weight, <span class="str">"gate"</span>, i, <span class="kw">true</span>);
+<span class="cm">// up:   [1, S, 1024] @ [3072, 1024]^T → [1, S, 3072]</span>
+<span class="tp">Tensor*</span> up   = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(ffn_normed, up_weight,   <span class="str">"up"</span>,   i, <span class="kw">true</span>);</div>
+
+<div><strong>2.3 SiLU 激活 + 逐元素乘</strong></div>
+<div class="code"><span class="cm">// SwiGLU: SiLU(gate) * up</span>
+<span class="tp">Tensor*</span> gate_act = <span class="tp">OpFactory</span>::<span class="fn">silu</span>(gate, <span class="str">"gate_act"</span>, i);
+<span class="cm">// SiLU(x) = x * sigmoid(x)</span>
+
+<span class="tp">Tensor*</span> ffn_inter = <span class="tp">OpFactory</span>::<span class="fn">mul</span>(gate_act, up, <span class="str">"ffn_inter"</span>, i);
+<span class="cm">// [1, S, 3072] * [1, S, 3072] → [1, S, 3072] (逐元素)</span></div>
+
+<div><strong>2.4 Down 投影 + 残差连接 2</strong></div>
+<div class="code"><span class="cm">// [1, S, 3072] @ [1024, 3072]^T → [1, S, 1024]</span>
+<span class="tp">Tensor*</span> ffn_out = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(ffn_inter, down_weight, <span class="str">"ffn_out"</span>, i, <span class="kw">true</span>);
+
+<span class="cm">// 残差连接 2: FFN 输出 + Attention 残差输出</span>
+<span class="tp">Tensor*</span> layer_output = <span class="tp">OpFactory</span>::<span class="fn">add</span>(ffn_out, ffn_input, <span class="str">"layer_output"</span>, i);
+<span class="cm">// [1, S, 1024] + [1, S, 1024] → [1, S, 1024]</span></div>
+</div>
+
+<!-- 单层完整数据流 -->
+<div style="margin-top:20px"><strong>单层完整数据流</strong></div>
+<div class="arch-diagram">input [1, S, 1024]
+    |                               v                            |
+  RMSNorm [1, S, 1024]           |  残差 1
+    |                            |
+    +---> Linear(Q) --> [1,S,2048] --> reshape_permute --> [1,16,S,128]
+    |                                                         |
+    +---> Linear(K) --> [1,S,1024] --> reshape_permute --> [1, 8,S,128]
+    |                                                         |
+    +---> Linear(V) --> [1,S,1024] --> reshape_permute --> [1, 8,S,128]
+    |                                                         |
+    |                    Per-head RMSNorm (Q, K)               |
+    |                           |                              |
+    |                    Apply RoPE (Q, K)                      |
+    |                           |                              |
+    |                    GQA Attention                          |
+    |                    [1, 16, S, 128]                        |
+    |                           |                              |
+    |                    permute_reshape                        |
+    |                    [1, S, 2048]                           |
+    |                           |                              |
+    |                    Linear(attn_out)                       |
+    |                    [1, S, 1024]                           |
+    |                           |                              |
+    +---------> add <-----------+------------------------------+
+                |
+                v
+    ffn_input [1, S, 1024]
+    |                               v                            |  残差 2
+  RMSNorm [1, S, 1024]           |
+    |                            |
+    +---> Linear(gate) --> [1, S, 3072] --+--> SiLU --> mul --+
+    |                                     |                   |
+    +---> Linear(up)   --> [1, S, 3072] --+-------------------+
+                                                  |
+                                          ffn_inter [1, S, 3072]
+                                                  |
+                                          Linear(down)
+                                                  |
+                                          ffn_out [1, S, 1024]
+                                                  |
+                                          add <---+
+                                                  |
+                                          layer_output [1, S, 1024]</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 4 -->
+<div class="phase" id="p5">
+<div class="phase-head" onclick="toggle(5)">
+<div class="phase-num" style="background:rgba(0,255,136,0.15);color:#00ff88">4</div>
+<div><div class="phase-title">final_norm + LM Head</div><div class="phase-desc">最终 RMSNorm → 线性投影到词表空间</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="code"><span class="cm">// 最终 RMSNorm (output_norm.weight [1024])</span>
+<span class="tp">Tensor*</span> final_norm = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(
+    prev_output,           <span class="cm">// [1, S, 1024]</span>
+    output_norm_info,      <span class="cm">// "output_norm.weight"</span>
+    config_.rms_norm_eps,
+    <span class="str">"final_norm"</span>,
+    config_.num_layers);   <span class="cm">// layer_id = 28</span>
+
+<span class="cm">// LM Head: 复用 token_embd.weight (权重共享)</span>
+<span class="tp">Tensor*</span> logits = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(
+    final_norm,            <span class="cm">// [1, S, 1024]</span>
+    embd_weight_info,      <span class="cm">// "token_embd.weight" [151936, 1024]</span>
+    <span class="str">"logits"</span>,
+    config_.num_layers,    <span class="cm">// layer_id = 28</span>
+    <span class="kw">true</span>);                <span class="cm">// transpose</span>
+<span class="cm">// [1, S, 1024] @ [151936, 1024]^T → [1, S, 151936]</span></div>
+<div class="flow">
+<div class="flow-box">prev_output<br><span class="shape">[1,S,1024]</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">RMSNorm</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box">final_norm<br><span class="shape">[1,S,1024]</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">Linear<br>(LM Head)</div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box" style="border-color:rgba(255,107,157,0.4);background:rgba(255,107,157,0.06)">logits<br><span class="shape">[1,S,151936]</span></div>
+</div>
+<div class="info info-green">LM Head 与 Embedding 共享权重 (weight tying)，减少参数量。每个 token 位置输出 151936 维向量，表示下一个 token 的 logits。</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 5 -->
+<div class="phase" id="p6">
+<div class="phase-head" onclick="toggle(6)">
+<div class="phase-num" style="background:rgba(255,165,0,0.15);color:#ffa500">5</div>
+<div><div class="phase-title">build_from_outputs - 反向构建计算图</div><div class="phase-desc">graph->build_from_outputs({logits})</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="code"><span class="cm">// 从输出张量 logits 出发，沿 src[] 指针反向遍历整个 DAG</span>
+<span class="kw">auto</span> graph = std::<span class="fn">make_unique</span>&lt;<span class="tp">ComputeGraph</span>&gt;();
+graph-><span class="fn">build_from_outputs</span>({logits});
+<span class="kw">return</span> graph;</div>
+<div class="info info-blue">build_from_outputs 从 logits 开始 BFS/DFS 遍历所有 src[] 依赖，收集所有参与计算的 Tensor 节点，构建完整的有向无环图 (DAG)。</div>
+<div class="cols">
+<div class="col">
+<div class="col-title">收集的节点类型</div>
+<table>
+<tr><th>类型</th><th>标记</th><th>说明</th></tr>
+<tr><td><span class="tag tag-input">INPUT</span></td><td>input_ids</td><td>执行时绑定</td></tr>
+<tr><td><span class="tag tag-weight">WEIGHT</span></td><td>所有权重</td><td>从 GGUF 加载</td></tr>
+<tr><td><span class="tag tag-cache">CACHE</span></td><td>KV Cache</td><td>推理时维护</td></tr>
+<tr><td><span class="tag tag-act">ACT</span></td><td>中间激活</td><td>运行时分配</td></tr>
+</table>
+</div>
+<div class="col">
+<div class="col-title">图的规模</div>
+<table>
+<tr><th>指标</th><th>数量</th></tr>
+<tr><td>总节点数</td><td>~800+</td></tr>
+<tr><td>权重张量</td><td>~300</td></tr>
+<tr><td>CACHE 张量</td><td>~56 (28层 x 2)</td></tr>
+<tr><td>操作类型</td><td>linear, rms_norm, attention, silu, mul, add, embedding, rope...</td></tr>
+</table>
+</div>
+</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- Step 6: OpFactory 概览 -->
+<div class="phase" id="p7">
+<div class="phase-head" onclick="toggle(7)">
+<div class="phase-num" style="background:rgba(0,212,255,0.15);color:#00d4ff">6</div>
+<div><div class="phase-title">OpFactory 算子概览</div><div class="phase-desc">所有算子只声明形状和依赖，不执行计算</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<table>
+<tr><th>算子</th><th>函数</th><th>输入 → 输出</th><th>用途</th></tr>
+<tr><td>placeholder</td><td>OpFactory::placeholder</td><td>无 → <span class="shape">[B, S]</span></td><td>输入占位</td></tr>
+<tr><td>embedding_lookup</td><td>OpFactory::embedding_lookup</td><td><span class="shape">[B,S]</span> + <span class="shape">[V,H]</span> → <span class="shape">[B,S,H]</span></td><td>词嵌入</td></tr>
+<tr><td>linear</td><td>OpFactory::linear</td><td><span class="shape">[...,in]</span> @ <span class="shape">[out,in]</span>^T → <span class="shape">[...,out]</span></td><td>矩阵乘</td></tr>
+<tr><td>rms_norm</td><td>OpFactory::rms_norm</td><td><span class="shape">[...]</span> → <span class="shape">[...]</span></td><td>归一化</td></tr>
+<tr><td>reshape_permute</td><td>OpFactory::reshape_permute</td><td><span class="shape">[B,S,N,D]</span> → <span class="shape">[B,N,S,D]</span></td><td>头拆分</td></tr>
+<tr><td>permute_reshape</td><td>OpFactory::permute_reshape</td><td><span class="shape">[B,N,S,D]</span> → <span class="shape">[B,S,N*D]</span></td><td>头合并</td></tr>
+<tr><td>apply_rope</td><td>OpFactory::apply_rope</td><td>Q,K + cos,sin → Q',K'</td><td>位置编码</td></tr>
+<tr><td>Attention</td><td>OpFactory::Attention</td><td>Q,K,V → <span class="shape">[B,N,S,D]</span></td><td>GQA 注意力</td></tr>
+<tr><td>silu</td><td>OpFactory::silu</td><td><span class="shape">[...]</span> → <span class="shape">[...]</span></td><td>SiLU 激活</td></tr>
+<tr><td>mul</td><td>OpFactory::mul</td><td><span class="shape">[...]</span> * <span class="shape">[...]</span> → <span class="shape">[...]</span></td><td>逐元素乘</td></tr>
+<tr><td>add</td><td>OpFactory::add</td><td><span class="shape">[...]</span> + <span class="shape">[...]</span> → <span class="shape">[...]</span></td><td>残差连接</td></tr>
+</table>
+<div class="info">所有算子创建的 Tensor 的 data = nullptr，op_type 记录操作类型。实际计算在 Executor::forward() 中由后端 kernel 执行。</div>
+</div></div>
+
+<div class="big-arrow">&#8595;</div>
+
+<!-- 张量生命周期 -->
+<div class="phase" id="p8">
+<div class="phase-head" onclick="toggle(8)">
+<div class="phase-num" style="background:rgba(168,85,247,0.15);color:#a855f7">7</div>
+<div><div class="phase-title">后续阶段: 图 → 执行</div><div class="phase-desc">schedule() → load_weights() → executor.generate()</div></div>
+<span class="arrow-icon">&#9654;</span>
+</div>
+<div class="phase-body">
+<div class="flow">
+<div class="flow-box highlight">build_graph()<br><span style="font-size:0.75rem;color:#888">构建 DAG</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">schedule()<br><span style="font-size:0.75rem;color:#888">设备分配+内存</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">load_weights()<br><span style="font-size:0.75rem;color:#888">绑定权重数据</span></div>
+<span class="flow-arrow">&#8594;</span>
+<div class="flow-box highlight">generate()<br><span style="font-size:0.75rem;color:#888">推理执行</span></div>
+</div>
+<table>
+<tr><th>阶段</th><th>对 Tensor 的影响</th></tr>
+<tr><td>build_graph</td><td>创建所有节点，data=nullptr，仅定义形状和依赖关系</td></tr>
+<tr><td>schedule</td><td>为每个 Tensor 分配设备 (CPU/GPU)，计算内存需求，创建 MemoryPool</td></tr>
+<tr><td>load_weights</td><td>从 GGUF 文件读取权重数据，绑定到 WEIGHT 类型 Tensor 的 data 指针</td></tr>
+<tr><td>generate</td><td>绑定 input_ids 数据，为 ACT/CACHE 分配运行时内存，执行前向计算</td></tr>
+</table>
+</div></div>
+
+</div>
+</div>
+
+<script>
+function toggle(i){var e=document.getElementById('p'+i);e.classList.toggle('open');document.querySelectorAll('.nav-dot').forEach(function(d){d.classList.toggle('active',d.getAttribute('data-p')==i&&e.classList.contains('open'))})}
+function go(i){var e=document.getElementById('p'+i);e.scrollIntoView({behavior:'smooth',block:'center'});e.classList.add('open');document.querySelectorAll('.nav-dot').forEach(function(d){d.classList.toggle('active',d.getAttribute('data-p')==i)})}
+</script>
+</body>
+</html>
