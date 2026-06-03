@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>单层 Transformer 计算图构建演示</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#333;line-height:1.6}
+.wrap{max-width:1200px;margin:0 auto;padding:20px}
+h1{text-align:center;font-size:2em;color:#2c3e50;margin-bottom:10px}
+.sub{text-align:center;color:#666;margin-bottom:30px}
+/* 控制栏 */
+.controls{display:flex;justify-content:center;gap:15px;margin-bottom:30px;flex-wrap:wrap}
+.btn{padding:12px 24px;border:none;border-radius:8px;font-size:1em;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px}
+.btn-primary{background:#4a90d9;color:white}
+.btn-primary:hover{background:#357abd}
+.btn-primary:disabled{background:#ccc;cursor:not-allowed}
+.btn-success{background:#27ae60;color:white}
+.btn-success:hover{background:#219a52}
+.btn-danger{background:#e74c3c;color:white}
+.btn-danger:hover{background:#c0392b}
+.step-counter{display:flex;align-items:center;background:white;padding:8px 16px;border-radius:8px;font-weight:600;color:#4a90d9}
+/* 主布局 */
+.main{display:grid;grid-template-columns:1fr 380px;gap:20px}
+@media(max-width:900px){.main{grid-template-columns:1fr}}
+/* 图区域 */
+.graph-area{background:#1e1e2e;border-radius:12px;padding:20px;min-height:500px;position:relative;overflow:hidden}
+.graph-title{font-size:1.1em;font-weight:600;color:#e0e0e0;margin-bottom:15px;display:flex;align-items:center;gap:8px}
+.graph-title::before{content:'';width:4px;height:20px;background:#4a90d9;border-radius:2px}
+/* SVG 图 */
+svg{width:100%;height:450px}
+.node{cursor:pointer;transition:all .3s}
+.node rect{rx:8;ry:8;stroke-width:2;transition:all .3s}
+.node text{font-size:11px;font-family:monospace;fill:white;font-weight:500}
+.node.input rect{fill:#2563eb;stroke:#3b82f6}
+.node.weight rect{fill:#7c3aed;stroke:#8b5cf6}
+.node.op rect{fill:#ea580c;stroke:#f97316}
+.node.act rect{fill:#059669;stroke:#10b981}
+.node.cache rect{fill:#d97706;stroke:#f59e0b}
+.node.new-node rect{animation:pulse 1s ease-in-out 3}
+@keyframes pulse{0%,100%{filter:none}50%{filter:drop-shadow(0 0 10px rgba(74,144,217,0.8))}}
+.edge{stroke:#666;stroke-width:2;fill:none;marker-end:url(#arrowhead)}
+.edge.new-edge{stroke:#4a90d9;stroke-width:3;animation:edgeIn .5s ease-out}
+@keyframes edgeIn{from{stroke-dasharray:1000;stroke-dashoffset:1000}to{stroke-dasharray:1000;stroke-dashoffset:0}}
+.shape-text{font-size:10px;fill:#aaa}
+/* 代码区域 */
+.code-area{background:white;border-radius:12px;padding:20px}
+.code-title{font-size:1.1em;font-weight:600;color:#27ae60;margin-bottom:15px;display:flex;align-items:center;gap:8px}
+.code-title::before{content:'';width:4px;height:20px;background:#27ae60;border-radius:2px}
+.code-block{background:#1e1e1e;color:#d4d4d4;padding:15px;border-radius:8px;font-family:'Consolas',monospace;font-size:13px;line-height:1.8;overflow-x:auto;max-height:200px;overflow-y:auto}
+.code-block .cm{color:#6a9955}
+.code-block .kw{color:#569cd6}
+.code-block .tp{color:#4ec9b0}
+.code-block .fn{color:#dcdcaa}
+.code-block .str{color:#ce9178}
+.code-block .num{color:#b5cea8}
+/* 解释区域 */
+.explain{background:#e8f5e9;border-radius:8px;padding:15px;margin-top:15px;font-size:0.9em;line-height:1.8}
+.explain strong{color:#1b5e20}
+/* 例子区域 */
+.example{background:#fff8e1;border-radius:8px;padding:15px;margin-top:12px;font-size:0.85em;border-left:4px solid #f59e0b}
+.example-title{font-weight:600;color:#92400e;margin-bottom:8px}
+.example code{background:#fef3c7;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+/* 图例 */
+.legend{display:flex;gap:15px;flex-wrap:wrap;margin-bottom:15px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:0.85em}
+.legend-color{width:14px;height:14px;border-radius:3px}
+/* 进度条 */
+.progress{display:flex;gap:4px;margin-bottom:20px}
+.progress-step{flex:1;height:4px;background:#e0e0e0;border-radius:2px;transition:background .3s}
+.progress-step.done{background:#4a90d9}
+.progress-step.current{background:#27ae60}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🧩 单层 Transformer 计算图构建演示</h1>
+<p class="sub">点击"下一步"逐步观察计算图是如何从代码中构建出来的</p>
+
+<div class="controls">
+<button class="btn btn-danger" onclick="resetDemo()">🔄 重置</button>
+<button class="btn btn-primary" id="prevBtn" onclick="prevStep()" disabled>⬅ 上一步</button>
+<button class="btn btn-success" id="nextBtn" onclick="nextStep()">下一步 ➡</button>
+<button class="btn btn-primary" onclick="autoPlay()">▶ 自动播放</button>
+<div class="step-counter">步骤: <span id="stepNum">0</span> / <span id="totalSteps">0</span></div>
+</div>
+
+<div class="progress" id="progressBar"></div>
+
+<div class="legend">
+<div class="legend-item"><div class="legend-color" style="background:#2563eb"></div>输入 INPUT</div>
+<div class="legend-item"><div class="legend-color" style="background:#7c3aed"></div>权重 WEIGHT</div>
+<div class="legend-item"><div class="legend-color" style="background:#ea580c"></div>操作 OP</div>
+<div class="legend-item"><div class="legend-color" style="background:#059669"></div>激活 ACT</div>
+<div class="legend-item"><div class="legend-color" style="background:#d97706"></div>缓存 CACHE</div>
+</div>
+
+<div class="main">
+<div class="graph-area">
+<div class="graph-title">计算图</div>
+<svg id="svg" viewBox="0 0 700 450">
+<defs>
+<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+<polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+</marker>
+</defs>
+</svg>
+</div>
+<div class="code-area">
+<div class="code-title">对应代码</div>
+<div class="code-block" id="codeBlock"></div>
+<div class="explain" id="explainBox"></div>
+<div class="example" id="exampleBox"></div>
+</div>
+</div>
+</div>
+
+<script>
+var steps = [
+{
+  title: "步骤 1: 创建输入占位符",
+  code: '<span class="cm">// 创建输入占位符</span>\n<span class="tp">Tensor</span>* input_ids = <span class="tp">OpFactory</span>::<span class="fn">placeholder</span>(\n    DataType::I32,\n    TensorType::INPUT,\n    {<span class="num">1</span>, <span class="num">-1</span>},\n    <span class="str">"input_ids"</span>\n);',
+  explain: '<strong>placeholder</strong> 创建一个"空壳"节点，标记这里是计算图的入口。data=nullptr，等待运行时绑定实际数据。',
+  example: '<div class="example-title">💡 例子：餐厅点餐单</div>就像餐厅给你一张空白点餐单，上面写着"客人姓名:___，菜品:___"。现在还没填内容，但已经确定了格式。<br><br>实际数据示例：<br>假设我们要处理句子 <code>"你好世界"</code>，经过 tokenizer 后得到：<br><code>input_ids = [151643, 57668, 107841]</code>（3个词的ID）',
+  nodes: [{id:'input_ids',type:'input',label:'input_ids',shape:'[1, S=3]',x:300,y:80}],
+  edges: []
+},
+{
+  title: "步骤 2: 词嵌入查表",
+  code: '<span class="cm">// 词嵌入: ID → 向量</span>\n<span class="tp">Tensor</span>* x_in = <span class="tp">OpFactory</span>::<span class="fn">embedding_lookup</span>(\n    input_ids,\n    embd_weight_info,\n    <span class="str">"x_in"</span>\n);',
+  explain: '<strong>embedding_lookup</strong> 就像查字典：输入词的 ID，输出对应的向量。形状从 [1,S] 变成 [1,S,1024]。',
+  example: '<div class="example-title">💡 例子：查字典</div>就像查字典一样：<br><br>输入: <code>input_ids = [151643, 57668, 107841]</code><br><br>查表过程:<br><code>token_embd[151643]</code> → <code>[0.02, -0.15, 0.08, ..., 0.31]</code> (1024维)<br><code>token_embd[57668]</code>  → <code>[-0.11, 0.04, 0.22, ..., -0.05]</code><br><code>token_embd[107841]</code> → <code>[0.18, -0.07, 0.14, ..., 0.09]</code><br><br>输出: <code>x_in = [1, 3, 1024]</code> (每个词变成1024维向量)',
+  nodes: [{id:'input_ids',type:'input',label:'input_ids',shape:'[1, 3]',x:300,y:30},
+          {id:'embd_w',type:'weight',label:'token_embd.weight',shape:'[151936, 1024]',x:100,y:30},
+          {id:'x_in',type:'act',label:'x_in (Embedding)',shape:'[1, 3, 1024]',x:300,y:120}],
+  edges: [['input_ids','x_in'],['embd_w','x_in']]
+},
+{
+  title: "步骤 3: RMSNorm 归一化",
+  code: '<span class="cm">// Pre-Attention RMSNorm</span>\n<span class="tp">Tensor</span>* x_norm = <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(\n    x_in,\n    attn_norm_info,\n    eps,\n    <span class="str">"x_norm"</span>\n);',
+  explain: '<strong>RMSNorm</strong> 对输入做归一化：y = x / sqrt(mean(x²) + eps) * weight。让训练更稳定。',
+  example: '<div class="example-title">💡 例子：考试成绩标准化</div>假设原始向量的前4个值: <code>[2.0, -1.5, 3.0, 0.5]</code><br><br>计算过程:<br>1. 平方: <code>[4.0, 2.25, 9.0, 0.25]</code><br>2. 均值: <code>(4+2.25+9+0.25)/4 = 3.875</code><br>3. RMS: <code>sqrt(3.875) ≈ 1.97</code><br>4. 归一化: <code>[2.0/1.97, -1.5/1.97, 3.0/1.97, 0.5/1.97]</code><br>   = <code>[1.015, -0.761, 1.523, 0.254]</code><br>5. 乘权重: <code>[1.015*0.98, -0.761*1.02, ...]</code><br><br>就像把不同尺度的考试成绩(满分100/150)统一到同一个标准！',
+  nodes: [{id:'x_in',type:'act',label:'x_in',shape:'[1, 3, 1024]',x:300,y:30},
+          {id:'norm_w',type:'weight',label:'attn_norm.weight',shape:'[1024]',x:100,y:30},
+          {id:'x_norm',type:'act',label:'x_norm (RMSNorm)',shape:'[1, 3, 1024]',x:300,y:120}],
+  edges: [['x_in','x_norm'],['norm_w','x_norm']]
+},
+{
+  title: "步骤 4: Q/K/V 投影",
+  code: '<span class="cm">// Q/K/V 线性投影</span>\n<span class="tp">Tensor</span>* q_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(\n    x_norm, q_weight, <span class="str">"q_flat"</span>);\n<span class="tp">Tensor</span>* k_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(\n    x_norm, k_weight, <span class="str">"k_flat"</span>);\n<span class="tp">Tensor</span>* v_flat = <span class="tp">OpFactory</span>::<span class="fn">linear</span>(\n    x_norm, v_weight, <span class="str">"v_flat"</span>);',
+  explain: '三个<strong>linear</strong>并行计算 Q、K、V。Q 有 16 个头，K/V 各 8 个头 (GQA)。',
+  example: '<div class="example-title">💡 例子：同一份简历投三个部门</div>就像用同一份简历(x_norm)同时投给三个部门：<br><br><strong>Q 部门 (Query)</strong>: "我想找什么？"<br><code>q = x @ Q_weight</code><br>输出: <code>[1, 3, 2048]</code> (16头×128维)<br><br><strong>K 部门 (Key)</strong>: "我能提供什么？"<br><code>k = x @ K_weight</code><br>输出: <code>[1, 3, 1024]</code> (8头×128维)<br><br><strong>V 部门 (Value)</strong>: "我的具体内容是什么？"<br><code>v = x @ V_weight</code><br>输出: <code>[1, 3, 1024]</code> (8头×128维)<br><br>三个部门独立处理，互不干扰！',
+  nodes: [{id:'x_norm',type:'act',label:'x_norm',shape:'[1, 3, 1024]',x:350,y:30},
+          {id:'q_w',type:'weight',label:'Q weight',shape:'[2048, 1024]',x:100,y:100},
+          {id:'k_w',type:'weight',label:'K weight',shape:'[1024, 1024]',x:300,y:100},
+          {id:'v_w',type:'weight',label:'V weight',shape:'[1024, 1024]',x:500,y:100},
+          {id:'q_flat',type:'act',label:'q_flat',shape:'[1, 3, 2048]',x:150,y:180},
+          {id:'k_flat',type:'act',label:'k_flat',shape:'[1, 3, 1024]',x:350,y:180},
+          {id:'v_flat',type:'act',label:'v_flat',shape:'[1, 3, 1024]',x:550,y:180}],
+  edges: [['x_norm','q_flat'],['x_norm','k_flat'],['x_norm','v_flat'],['q_w','q_flat'],['k_w','k_flat'],['v_w','v_flat']]
+},
+{
+  title: "步骤 5: 拆分多头",
+  code: '<span class="cm">// 拆分成多个注意力头</span>\n<span class="tp">Tensor</span>* q_4d = <span class="tp">OpFactory</span>::\n    <span class="fn">reshape_permute</span>(q_flat,\n    {<span class="num">1</span>,<span class="num">-1</span>,<span class="num">16</span>,<span class="num">128</span>}, {<span class="num">0</span>,<span class="num">2</span>,<span class="num">1</span>,<span class="num">3</span>});\n<span class="cm">// [1,3,2048] → [1,16,3,128]</span>',
+  explain: '<strong>reshape_permute</strong> 把扁平的向量拆成多头：[1,3,2048] → [1,16,3,128]。每个头独立计算注意力。',
+  example: '<div class="example-title">💡 例子：小组讨论</div>就像把一个大组拆成多个小组同时讨论：<br><br><strong>Q (Query)</strong>:<br><code>[1, 3, 2048]</code> → reshape → <code>[1, 3, 16, 128]</code><br>→ permute → <code>[1, 16, 3, 128]</code><br><br>意思是:<br>- 1 个 batch<br>- 16 个头 (16个小组同时讨论)<br>- 3 个词 (每个小组有3个成员)<br>- 128 维 (每个成员的发言内容)<br><br><strong>K, V</strong>: 8 个头 (KV头更少，这是GQA优化)<br><code>[1, 3, 1024]</code> → <code>[1, 8, 3, 128]</code>',
+  nodes: [{id:'q_flat',type:'act',label:'q_flat',shape:'[1,3,2048]',x:150,y:30},
+          {id:'k_flat',type:'act',label:'k_flat',shape:'[1,3,1024]',x:350,y:30},
+          {id:'v_flat',type:'act',label:'v_flat',shape:'[1,3,1024]',x:550,y:30},
+          {id:'q_4d',type:'act',label:'q_4d',shape:'[1,16,3,128]',x:150,y:120},
+          {id:'k_4d',type:'act',label:'k_4d',shape:'[1,8,3,128]',x:350,y:120},
+          {id:'v_4d',type:'act',label:'v_4d',shape:'[1,8,3,128]',x:550,y:120}],
+  edges: [['q_flat','q_4d'],['k_flat','k_4d'],['v_flat','v_4d']]
+},
+{
+  title: "步骤 6: RoPE 旋转位置编码",
+  code: '<span class="cm">// 应用旋转位置编码</span>\n<span class="kw">auto</span> [q_rope, k_rope] =\n    <span class="tp">OpFactory</span>::<span class="fn">apply_rope</span>(\n    q_normed, k_normed,\n    rope_cos, rope_sin);',
+  explain: '<strong>RoPE</strong> 通过旋转向量注入位置信息，让模型知道每个词的位置。Q 和 K 都会被旋转。',
+  example: '<div class="example-title">💡 例子：给每句话标序号</div>就像给句子中的每个词标上位置标签：<br><br>原始 Q 向量: <code>[0.5, 0.3, -0.1, 0.8]</code><br><br>位置 0 的旋转: <code>cos(0)=1, sin(0)=0</code><br>旋转后: <code>[0.5, 0.3, -0.1, 0.8]</code> (不变)<br><br>位置 1 的旋转: <code>cos(1)=0.54, sin(1)=0.84</code><br>旋转后: <code>[0.5*0.54-0.3*0.84, 0.5*0.84+0.3*0.54, ...]</code><br>= <code>[0.018, 0.582, ...]</code><br><br>这样模型就能区分:<br>- "我 爱 你" (位置0,1,2)<br>- "你 爱 我" (位置0,1,2) ← 词相同但位置不同！',
+  nodes: [{id:'q_4d',type:'act',label:'q_normed',shape:'[1,16,3,128]',x:150,y:30},
+          {id:'k_4d',type:'act',label:'k_normed',shape:'[1,8,3,128]',x:350,y:30},
+          {id:'rope',type:'cache',label:'rope_cos/sin',shape:'[128, 128]',x:550,y:30},
+          {id:'q_rope',type:'act',label:'q_rope',shape:'[1,16,3,128]',x:200,y:120},
+          {id:'k_rope',type:'act',label:'k_rope',shape:'[1,8,3,128]',x:400,y:120}],
+  edges: [['q_4d','q_rope'],['k_4d','k_rope'],['rope','q_rope'],['rope','k_rope']]
+},
+{
+  title: "步骤 7: 注意力计算",
+  code: '<span class="cm">// GQA 注意力: Q@K^T → softmax → @V</span>\n<span class="tp">Tensor</span>* attn_4d =\n    <span class="tp">OpFactory</span>::<span class="fn">Attention</span>(\n    q_rope, k_rope, v_4d,\n    scale=<span class="num">1/sqrt(128)</span>,\n    causal=<span class="kw">true</span>,\n    kv_groups=<span class="num">2</span>);',
+  explain: '<strong>Attention</strong> 是核心！Q 和 K 做点积得到注意力权重，再和 V 加权求和。GQA 让 2 个 Q 头共享 1 个 KV 头。',
+  example: '<div class="example-title">💡 例子：投票选举代表</div><br><strong>第1步: Q·K^T 计算相似度</strong><br><code>q[0] = [0.5, 0.3, ...]</code> (我想找什么)<br><code>k[0] = [0.4, 0.6, ...]</code> (词0能提供什么)<br><code>k[1] = [0.1, 0.8, ...]</code> (词1能提供什么)<br><br>相似度: <code>[q·k0=0.38, q·k1=0.29]</code><br><br><strong>第2步: softmax 归一化</strong><br><code>exp([0.38, 0.29]) / sum</code><br>= <code>[0.52, 0.48]</code> (注意力权重)<br><br><strong>第3步: 加权求和</strong><br><code>attn = 0.52 * v[0] + 0.48 * v[1]</code><br><br>就像投票：每个词对结果的贡献由相似度决定！',
+  nodes: [{id:'q_rope',type:'act',label:'q_rope',shape:'[1,16,3,128]',x:100,y:30},
+          {id:'k_rope',type:'act',label:'k_rope',shape:'[1,8,3,128]',x:300,y:30},
+          {id:'v_4d',type:'act',label:'v_4d',shape:'[1,8,3,128]',x:500,y:30},
+          {id:'attn_4d',type:'op',label:'Attention',shape:'[1,16,3,128]',x:300,y:130}],
+  edges: [['q_rope','attn_4d'],['k_rope','attn_4d'],['v_4d','attn_4d']]
+},
+{
+  title: "步骤 8: 输出投影 + 残差",
+  code: '<span class="cm">// 合并多头 → 输出投影</span>\n<span class="tp">Tensor</span>* attn_flat = <span class="tp">OpFactory</span>::\n    <span class="fn">permute_reshape</span>(attn_4d, ...);\n<span class="tp">Tensor</span>* attn_out = <span class="tp">OpFactory</span>::\n    <span class="fn">linear</span>(attn_flat, out_weight);\n\n<span class="cm">// 残差连接</span>\n<span class="tp">Tensor</span>* ffn_input = <span class="tp">OpFactory</span>::\n    <span class="fn">add</span>(attn_out, x_in);',
+  explain: '合并多头后做<strong>输出投影</strong>，然后<strong>残差连接</strong>：把原始输入加回来，防止梯度消失。',
+  example: '<div class="example-title">💡 例子：小组汇报+原始材料</div><br><strong>第1步: 合并16个小组的讨论结果</strong><br><code>[1, 16, 3, 128]</code> → <code>[1, 3, 2048]</code><br>(把16个头的结果拼接起来)<br><br><strong>第2步: 输出投影</strong><br><code>attn_out = attn_flat @ output_weight</code><br><code>[1, 3, 2048]</code> → <code>[1, 3, 1024]</code><br>(压缩回原始维度)<br><br><strong>第3步: 残差连接</strong><br><code>ffn_input = attn_out + x_in</code><br><br>就像小组讨论后，把讨论结果(attn_out)和原始材料(x_in)合并：<br>- 保留原始信息(防止遗忘)<br>- 加入新理解(讨论结果)',
+  nodes: [{id:'attn_4d',type:'op',label:'Attention',shape:'[1,16,3,128]',x:300,y:20},
+          {id:'attn_flat',type:'act',label:'attn_flat',shape:'[1,3,2048]',x:300,y:90},
+          {id:'out_w',type:'weight',label:'attn_output.weight',shape:'[1024,2048]',x:500,y:90},
+          {id:'attn_out',type:'act',label:'attn_out',shape:'[1,3,1024]',x:300,y:160},
+          {id:'x_in2',type:'act',label:'x_in (skip)',shape:'[1,3,1024]',x:100,y:160},
+          {id:'ffn_input',type:'act',label:'ffn_input (+)',shape:'[1,3,1024]',x:300,y:240}],
+  edges: [['attn_4d','attn_flat'],['attn_flat','attn_out'],['out_w','attn_out'],['attn_out','ffn_input'],['x_in2','ffn_input']]
+},
+{
+  title: "步骤 9: FFN 归一化",
+  code: '<span class="cm">// Post-Attention RMSNorm</span>\n<span class="tp">Tensor</span>* ffn_normed =\n    <span class="tp">OpFactory</span>::<span class="fn">rms_norm</span>(\n    ffn_input, ffn_norm_info);',
+  explain: '进入 FFN 分支前先做一次 <strong>RMSNorm</strong>，保持数值稳定。',
+  example: '<div class="example-title">💡 例子：再次标准化</div>就像考试前再次确认评分标准：<br><br>输入: <code>ffn_input = [1, 3, 1024]</code><br><br>对每个位置的1024维向量做归一化：<br><code>y = x / sqrt(mean(x²) + 1e-6) * weight</code><br><br>这次的权重(ffn_norm.weight)和前面的不同，因为:<br>- 前面是 Attention 前的归一化<br>- 这里是 FFN 前的归一化<br><br>两套独立的"评分标准"！',
+  nodes: [{id:'ffn_input',type:'act',label:'ffn_input',shape:'[1,3,1024]',x:300,y:30},
+          {id:'ffn_norm_w',type:'weight',label:'ffn_norm.weight',shape:'[1024]',x:500,y:30},
+          {id:'ffn_normed',type:'act',label:'ffn_normed',shape:'[1,3,1024]',x:300,y:120}],
+  edges: [['ffn_input','ffn_normed'],['ffn_norm_w','ffn_normed']]
+},
+{
+  title: "步骤 10: SwiGLU (Gate + Up)",
+  code: '<span class="cm">// SwiGLU: 两条并行路径</span>\n<span class="tp">Tensor</span>* gate = <span class="tp">OpFactory</span>::\n    <span class="fn">linear</span>(ffn_normed, gate_w);\n<span class="tp">Tensor</span>* up = <span class="tp">OpFactory</span>::\n    <span class="fn">linear</span>(ffn_normed, up_w);\n\n<span class="cm">// SiLU(gate) * up</span>\n<span class="tp">Tensor</span>* gate_act = <span class="tp">OpFactory</span>::\n    <span class="fn">silu</span>(gate);\n<span class="tp">Tensor</span>* ffn_inter = <span class="tp">OpFactory</span>::\n    <span class="fn">mul</span>(gate_act, up);',
+  explain: '<strong>SwiGLU</strong> 是 Qwen3 的特色：gate 控制"哪些信息重要"，up 放大信息，SiLU 激活后相乘。',
+  example: '<div class="example-title">💡 例子：水龙头+水流</div>想象两个并行的过程：<br><br><strong>Gate (水龙头)</strong>:<br><code>gate = [0.8, 0.2, 0.9, ...]</code><br>SiLU激活: <code>[0.63, 0.10, 0.72, ...]</code><br>(SiLU(x) = x * sigmoid(x))<br><br><strong>Up (水流)</strong>:<br><code>up = [1.5, 2.0, 0.5, ...]</code><br><br><strong>相乘 (水龙头控制水流)</strong>:<br><code>ffn_inter = gate * up</code><br><code>= [0.63*1.5, 0.10*2.0, 0.72*0.5, ...]</code><br><code>= [0.945, 0.20, 0.36, ...]</code><br><br>Gate 学会了"哪些信息要保留，哪些要丢弃"！',
+  nodes: [{id:'ffn_normed',type:'act',label:'ffn_normed',shape:'[1,3,1024]',x:350,y:20},
+          {id:'gate_w',type:'weight',label:'gate.weight',shape:'[3072,1024]',x:100,y:90},
+          {id:'up_w',type:'weight',label:'up.weight',shape:'[3072,1024]',x:550,y:90},
+          {id:'gate',type:'act',label:'gate',shape:'[1,3,3072]',x:150,y:160},
+          {id:'up',type:'act',label:'up',shape:'[1,3,3072]',x:500,y:160},
+          {id:'gate_act',type:'op',label:'SiLU(gate)',shape:'[1,3,3072]',x:150,y:240},
+          {id:'ffn_inter',type:'op',label:'ffn_inter (×)',shape:'[1,3,3072]',x:350,y:240}],
+  edges: [['ffn_normed','gate'],['ffn_normed','up'],['gate_w','gate'],['up_w','up'],['gate','gate_act'],['gate_act','ffn_inter'],['up','ffn_inter']]
+},
+{
+  title: "步骤 11: Down投影 + 残差",
+  code: '<span class="cm">// Down 投影</span>\n<span class="tp">Tensor</span>* ffn_out = <span class="tp">OpFactory</span>::\n    <span class="fn">linear</span>(ffn_inter, down_w);\n\n<span class="cm">// 残差连接</span>\n<span class="tp">Tensor</span>* layer_output = <span class="tp">OpFactory</span>::\n    <span class="fn">add</span>(ffn_out, ffn_input);',
+  explain: '<strong>Down 投影</strong>把维度从 3072 压回 1024，然后<strong>残差连接</strong>。一层 Transformer 完成！',
+  example: '<div class="example-title">💡 例子：压缩+合并</div><br><strong>第1步: Down 投影 (压缩)</strong><br><code>ffn_inter = [1, 3, 3072]</code><br><code>ffn_out = ffn_inter @ down_weight</code><br><code>[1, 3, 3072]</code> → <code>[1, 3, 1024]</code><br><br>就像把3072维的"扩展理解"压缩回1024维的"精炼总结"<br><br><strong>第2步: 残差连接</strong><br><code>layer_output = ffn_out + ffn_input</code><br><br>把FFN的结果(ffn_out)和FFN的输入(ffn_input)相加：<br>- 保留之前的信息(Attention结果)<br>- 加入新的理解(FFN处理结果)<br><br>🎉 <strong>一层 Transformer 完成！</strong>',
+  nodes: [{id:'ffn_inter',type:'op',label:'ffn_inter',shape:'[1,3,3072]',x:300,y:20},
+          {id:'down_w',type:'weight',label:'down.weight',shape:'[1024,3072]',x:500,y:20},
+          {id:'ffn_out',type:'act',label:'ffn_out',shape:'[1,3,1024]',x:300,y:100},
+          {id:'ffn_input2',type:'act',label:'ffn_input (skip)',shape:'[1,3,1024]',x:100,y:100},
+          {id:'layer_out',type:'act',label:'layer_output',shape:'[1,3,1024]',x:300,y:190}],
+  edges: [['ffn_inter','ffn_out'],['down_w','ffn_out'],['ffn_out','layer_out'],['ffn_input2','layer_out']]
+},
+{
+  title: "完成! 单层 Transformer 计算图",
+  code: '<span class="cm">// 完整的一层 Transformer</span>\n<span class="cm">// 包含 12 个 OpFactory 调用</span>\n<span class="cm">// 生成 ~30 个 Tensor 节点</span>\n\n<span class="cm">// 最终: layer_output [1, 3, 1024]</span>\n<span class="cm">// 可以堆叠 28 层!</span>',
+  explain: '🎉 <strong>单层计算图构建完成！</strong>实际模型有 28 层，每层结构相同但权重不同。整个图约 800+ 节点。',
+  example: '<div class="example-title">💡 例子：数据流动全貌</div>以句子 <code>"你好世界"</code> 为例：<br><br><strong>输入</strong>: <code>input_ids = [151643, 57668, 107841]</code><br><br><strong>经过11步处理后</strong>:<br><code>layer_output = [1, 3, 1024]</code><br><br>每个词现在有了 1024 维的"深度理解"：<br>- "你好" → 融合了上下文的向量<br>- "世界" → 知道前面是"你好"的向量<br><br><strong>实际模型</strong>:<br>- 28 层这样的 Transformer<br>- 311 个权重张量<br>- ~800 个计算图节点<br>- 首次加载需要 ~2GB 内存',
+  nodes: [{id:'input_ids',type:'input',label:'input_ids',shape:'[1,3]',x:350,y:10},
+          {id:'x_in',type:'act',label:'Embedding',shape:'[1,3,1024]',x:350,y:60},
+          {id:'x_norm',type:'act',label:'RMSNorm',shape:'[1,3,1024]',x:350,y:110},
+          {id:'q_flat',type:'act',label:'Q',shape:'[1,3,2048]',x:150,y:160},
+          {id:'k_flat',type:'act',label:'K',shape:'[1,3,1024]',x:350,y:160},
+          {id:'v_flat',type:'act',label:'V',shape:'[1,3,1024]',x:550,y:160},
+          {id:'attn',type:'op',label:'Attention',shape:'[1,16,3,128]',x:350,y:210},
+          {id:'ffn_in',type:'act',label:'+Residual',shape:'[1,3,1024]',x:350,y:260},
+          {id:'gate',type:'act',label:'SwiGLU',shape:'[1,3,3072]',x:250,y:310},
+          {id:'up',type:'act',label:'Up',shape:'[1,3,3072]',x:450,y:310},
+          {id:'ffn_out',type:'act',label:'Down',shape:'[1,3,1024]',x:350,y:360},
+          {id:'layer_out',type:'act',label:'layer_output',shape:'[1,3,1024]',x:350,y:420}],
+  edges: [['input_ids','x_in'],['x_in','x_norm'],['x_norm','q_flat'],['x_norm','k_flat'],['x_norm','v_flat'],
+          ['q_flat','attn'],['k_flat','attn'],['v_flat','attn'],['attn','ffn_in'],['x_in','ffn_in'],
+          ['ffn_in','gate'],['ffn_in','up'],['gate','ffn_out'],['up','ffn_out'],['ffn_out','layer_out'],['ffn_in','layer_out']]
+}
+];
+
+var currentStep = 0;
+var totalSteps = steps.length;
+var autoPlayTimer = null;
+
+function init() {
+  document.getElementById('totalSteps').textContent = totalSteps;
+  var bar = document.getElementById('progressBar');
+  for (var i = 0; i < totalSteps; i++) {
+    var s = document.createElement('div');
+    s.className = 'progress-step';
+    bar.appendChild(s);
+  }
+  renderStep(0);
+}
+
+function renderStep(idx) {
+  currentStep = idx;
+  document.getElementById('stepNum').textContent = idx + 1;
+  document.getElementById('prevBtn').disabled = idx === 0;
+  document.getElementById('nextBtn').disabled = idx === totalSteps - 1;
+
+  // Update progress
+  var steps_el = document.querySelectorAll('.progress-step');
+  steps_el.forEach(function(el, i) {
+    el.className = 'progress-step' + (i < idx ? ' done' : '') + (i === idx ? ' current' : '');
+  });
+
+  // Update code
+  document.getElementById('codeBlock').innerHTML = steps[idx].code;
+  document.getElementById('explainBox').innerHTML = steps[idx].explain;
+  document.getElementById('exampleBox').innerHTML = steps[idx].example;
+
+  // Render graph
+  renderGraph(steps[idx].nodes, steps[idx].edges, idx === totalSteps - 1);
+}
+
+function renderGraph(nodes, edges, isFinal) {
+  var svg = document.getElementById('svg');
+  // Clear
+  while (svg.childNodes.length > 1) svg.removeChild(svg.lastChild);
+
+  // Calculate bounds
+  var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  nodes.forEach(function(n) {
+    minX = Math.min(minX, n.x - 70);
+    maxX = Math.max(maxX, n.x + 70);
+    minY = Math.min(minY, n.y - 15);
+    maxY = Math.max(maxY, n.y + 15);
+  });
+
+  var padding = 30;
+  var vb = (minX - padding) + ' ' + (minY - padding) + ' ' + (maxX - minX + 2*padding) + ' ' + (maxY - minY + 2*padding);
+  svg.setAttribute('viewBox', vb);
+
+  // Draw edges
+  edges.forEach(function(e) {
+    var from = null, to = null;
+    nodes.forEach(function(n) { if(n.id === e[0]) from = n; if(n.id === e[1]) to = n; });
+    if (!from || !to) return;
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', from.x);
+    line.setAttribute('y1', from.y + 12);
+    line.setAttribute('x2', to.x);
+    line.setAttribute('y2', to.y - 12);
+    line.setAttribute('class', 'edge');
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    svg.appendChild(line);
+  });
+
+  // Draw nodes
+  nodes.forEach(function(n) {
+    var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'node ' + n.type);
+
+    var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    var w = Math.max(110, n.label.length * 7.5 + 20);
+    rect.setAttribute('x', n.x - w/2);
+    rect.setAttribute('y', n.y - 12);
+    rect.setAttribute('width', w);
+    rect.setAttribute('height', 24);
+    g.appendChild(rect);
+
+    var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', n.x);
+    text.setAttribute('y', n.y + 1);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.textContent = n.label;
+    g.appendChild(text);
+
+    // Shape label
+    var shapeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    shapeText.setAttribute('x', n.x);
+    shapeText.setAttribute('y', n.y + 24);
+    shapeText.setAttribute('text-anchor', 'middle');
+    shapeText.setAttribute('class', 'shape-text');
+    shapeText.textContent = n.shape;
+    g.appendChild(shapeText);
+
+    svg.appendChild(g);
+  });
+}
+
+function nextStep() {
+  if (currentStep < totalSteps - 1) renderStep(currentStep + 1);
+}
+
+function prevStep() {
+  if (currentStep > 0) renderStep(currentStep - 1);
+}
+
+function resetDemo() {
+  if (autoPlayTimer) { clearInterval(autoPlayTimer); autoPlayTimer = null; }
+  renderStep(0);
+}
+
+function autoPlay() {
+  if (autoPlayTimer) { clearInterval(autoPlayTimer); autoPlayTimer = null; return; }
+  if (currentStep >= totalSteps - 1) renderStep(0);
+  autoPlayTimer = setInterval(function() {
+    if (currentStep >= totalSteps - 1) { clearInterval(autoPlayTimer); autoPlayTimer = null; return; }
+    nextStep();
+  }, 3000);
+}
+
+init();
+</script>
+</body>
+</html>
