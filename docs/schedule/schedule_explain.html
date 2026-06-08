@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>GraphScheduler::schedule 流程解析</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "Segoe UI", "PingFang SC", sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px 20px; }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #58a6ff; }
+  .subtitle { text-align: center; font-size: 14px; color: #8b949e; margin-bottom: 40px; }
+
+  .flow { max-width: 720px; margin: 0 auto; position: relative; }
+  .flow::before {
+    content: '';
+    position: absolute; left: 28px; top: 0; bottom: 0;
+    width: 3px; background: linear-gradient(to bottom, #58a6ff, #3fb950, #f0883e, #d2a8ff, #f778ba, #3fb950, #58a6ff);
+    border-radius: 2px;
+  }
+
+  .step {
+    display: flex; align-items: flex-start; margin-bottom: 28px; position: relative;
+    opacity: 0; transform: translateY(20px);
+    animation: fadeIn 0.5s forwards;
+  }
+  .step:nth-child(1) { animation-delay: 0.1s; }
+  .step:nth-child(2) { animation-delay: 0.2s; }
+  .step:nth-child(3) { animation-delay: 0.3s; }
+  .step:nth-child(4) { animation-delay: 0.4s; }
+  .step:nth-child(5) { animation-delay: 0.5s; }
+  .step:nth-child(6) { animation-delay: 0.6s; }
+  .step:nth-child(7) { animation-delay: 0.7s; }
+  @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+
+  .step-num {
+    width: 56px; min-width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700; z-index: 1;
+    box-shadow: 0 0 16px rgba(0,0,0,0.4);
+  }
+  .step:nth-child(odd) .step-num { background: linear-gradient(135deg, #1f6feb, #58a6ff); color: #fff; }
+  .step:nth-child(even) .step-num { background: linear-gradient(135deg, #238636, #3fb950); color: #fff; }
+
+  .step-body {
+    margin-left: 20px; flex: 1;
+    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+    padding: 18px 22px; transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .step-body:hover { border-color: #58a6ff; box-shadow: 0 0 20px rgba(88,166,255,0.12); }
+
+  .step-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; color: #f0f6fc; }
+  .step-func { font-size: 13px; color: #79c0ff; font-family: "Fira Code", monospace; margin-bottom: 8px; }
+  .step-desc { font-size: 14px; line-height: 1.7; color: #b1bac4; }
+  .step-desc code { background: #1f2937; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #7ee787; font-family: "Fira Code", monospace; }
+  .step-desc .highlight { color: #ffa657; font-weight: 600; }
+  .step-desc .warn { color: #f85149; font-weight: 600; }
+
+  .analogy {
+    margin-top: 8px; padding: 10px 14px; background: #1c2431;
+    border-left: 3px solid #d2a8ff; border-radius: 0 6px 6px 0;
+    font-size: 13px; color: #d2a8ff; line-height: 1.6;
+  }
+  .analogy::before { content: '💡 类比：'; font-weight: 600; }
+
+  .arrow-down {
+    display: flex; justify-content: center; margin: -8px 0 -8px 0;
+    position: relative; z-index: 1;
+  }
+  .arrow-down span { color: #58a6ff; font-size: 18px; animation: bounce 1.5s infinite; }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(4px)} }
+
+  .summary-box {
+    max-width: 720px; margin: 40px auto 0;
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 24px 28px; line-height: 1.8; font-size: 14px;
+  }
+  .summary-box h2 { color: #3fb950; font-size: 18px; margin-bottom: 12px; }
+  .summary-box ul { padding-left: 20px; }
+  .summary-box li { margin-bottom: 6px; }
+  .summary-box code { background: #1f2937; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #79c0ff; font-family: "Fira Code", monospace; }
+</style>
+</head>
+<body>
+
+<h1>GraphScheduler::schedule()</h1>
+<p class="subtitle">推理引擎调度入口 — 将计算图分配到多个设备并创建内存池</p>
+
+<div class="flow">
+
+  <!-- Step 1 -->
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <div class="step-title">估算每层内存开销</div>
+      <div class="step-func">estimate_layer_costs(graph)</div>
+      <div class="step-desc">
+        遍历计算图中所有 Transformer 层，统计每层三类开销：<br>
+        - <span class="highlight">权重 (weight)</span>：模型参数，只读<br>
+        - <span class="highlight">激活 (activation)</span>：中间计算结果，层间复用<br>
+        - <span class="highlight">KV Cache</span>：注意力 Key/Value 缓存，由 <code>max_seq_len</code> 和 <code>n_kv_heads</code> 推算<br>
+        激活乘以 <code>activation_pool_factor</code> 系数做安全预留。
+      </div>
+      <div class="analogy">厨师清点食材：这道菜需要多少肉、多少蔬菜、多少调料。</div>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <div class="step-title">贪心分配连续层到设备</div>
+      <div class="step-func">assign_layers(costs, devices)</div>
+      <div class="step-desc">
+        设备按可用内存从大到小排序。从第一层开始，依次将连续层塞入当前设备：<br>
+        每层占用 = <code>weight + kv_cache + max(activation)</code><br>
+        超出设备内存时切到下一个设备。<span class="warn">CPU 作为最后兜底</span>，若 CPU 也放不下则抛出异常。<br>
+        返回值：每段一个 <code>LayerAssignment{start_layer, end_layer, device, dev_id}</code>
+      </div>
+      <div class="analogy">把衣服按顺序往衣柜里塞，塞满了换下一个衣柜，最后塞进储物间。</div>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <div class="step-title">写入 Tensor 设备信息</div>
+      <div class="step-func">apply_assignment(graph, assignments)</div>
+      <div class="step-desc">
+        将分配结果落实到每个 <code>Tensor::device</code> 字段。<br>
+        同时调用 <code>mmanager_->register_layer_device(layer_id, dev_id)</code><br>
+        在 MemoryManager 中注册 <span class="highlight">layer → device ID</span> 的映射关系。
+      </div>
+      <div class="analogy">给每份食材贴上标签：这份放冰箱，那份放冰柜。</div>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <div class="step-title">全局节点分配到 CPU</div>
+      <div class="step-func">assign_global_nodes(graph, cpu)</div>
+      <div class="step-desc">
+        <code>layer_id &lt; 0</code> 的节点（如 <span class="highlight">rope_sin / rope_cos</span> 旋转位置编码）不属于任何层，统一放在 CPU 上。
+      </div>
+      <div class="analogy">公共调料放在厨房台面上，不需要放冰箱。</div>
+    </div>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-body">
+      <div class="step-title">插入跨设备拷贝节点</div>
+      <div class="step-func">insert_copy_edges(graph)</div>
+      <div class="step-desc">
+        当某层输入张量来自<span class="warn">另一个设备</span>时，在图中自动插入 <code>memcpy</code> 节点进行数据搬运。<br>
+        去重机制：同一对 (src, dst_device) 只插入一次，多处引用复用同一拷贝节点。<br>
+        拷贝节点的内存开销在第 6 步 <code>create_memory_pools</code> 中从 KV Cache 池扣减。
+      </div>
+      <div class="analogy">冰箱里的肉要做菜，先搬到灶台上（memcpy），再下锅。</div>
+    </div>
+  </div>
+
+  <!-- Step 6 -->
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-body">
+      <div class="step-title">创建内存池</div>
+      <div class="step-func">create_memory_pools(graph, devices)</div>
+      <div class="step-desc">
+        在每个设备上调用 <code>mmanager_->get_or_create(dev, dev_id, weight, activation, kv_cache)</code>，<br>
+        创建三类内存池：<code>MemoryPool</code>（weight / activation / kv_cache）。<br>
+        内存池内部预分配一整块连续内存，后续通过偏移量分配，<span class="highlight">零碎片</span>。<br>
+        剩余空间全部给 KV Cache，最大化可用上下文长度。
+      </div>
+      <div class="analogy">搬进新家前先定制好橱柜，尺寸精确到厘米，不留浪费空间。</div>
+    </div>
+  </div>
+
+  <!-- Step 7 -->
+  <div class="step">
+    <div class="step-num">7</div>
+    <div class="step-body">
+      <div class="step-title">初始化 KV Cache 分页管理器</div>
+      <div class="step-func">initialize_kv_cache()</div>
+      <div class="step-desc">
+        为每个设备创建 <code>PagedAttentionManager</code>，管理 KV Cache 的分页分配。<br>
+        分页大小 = <code>PAGE_BLOCK_SIZE</code>（通常 16 tokens）<br>
+        最大页数 = <code>ceil(max_seq_len / PAGE_BLOCK_SIZE)</code><br>
+        每层的注意力头独立管理，支持动态分配和回收。
+      </div>
+      <div class="analogy">图书馆给每个书架编号，借书还书按页码管理，高效又不浪费。</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Summary -->
+<div class="summary-box">
+  <h2>核心设计思想</h2>
+  <ul>
+    <li><strong>层间内存复用</strong>：激活池取单层最大值而非累加，推理是逐层执行的，前一层用完立即回收</li>
+    <li><strong>连续层分段</strong>：同一设备分配连续层，减少跨设备通信次数</li>
+    <li><strong>零碎片内存池</strong>：预分配大块连续内存，通过偏移量分配，避免 malloc/free 碎片化</li>
+    <li><strong>内存预算公式</strong>：<code>need = Σweight + Σkv_cache + max(activation)</code>，超出时自动切设备</li>
+    <li><strong>CPU 兜底</strong>：GPU 内存不够时自动退到 CPU，保证模型一定能跑起来</li>
+  </ul>
+</div>
+
+</body>
+</html>
