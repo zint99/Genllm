@@ -1,7 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <cmath>
+#include <iomanip>
+#include <iostream>
 #include <vector>
 #include <memory>
 #include <concepts>
@@ -27,16 +31,30 @@ constexpr const char* COLOR_RED    = "\033[31m";
 constexpr const char* COLOR_YELLOW = "\033[33m";
 constexpr const char* COLOR_CYAN   = "\033[36m";
 
+namespace log_utils {
+    constexpr const char* short_file_name(const char* path) {
+        const char* file = path;
+        for (const char* p = path; *p != '\0'; ++p) {
+            if (*p == '/' || *p == '\\') {
+                file = p + 1;
+            }
+        }
+        return file;
+    }
+}
+
 // 日志基础宏（内部使用）
 #define LOG_BASE(level, color, msg) do { \
     auto now = std::chrono::system_clock::now(); \
     std::time_t t = std::chrono::system_clock::to_time_t(now); \
     std::tm tm_info; \
     localtime_r(&t, &tm_info); \
-    std::cerr << color << "[" << level << "] " \
-              << std::put_time(&tm_info, "%Y-%m-%d %H:%M:%S") \
-              << " [" << __FILE__ << ":" << __LINE__ << "]" \
-              << " (" << __func__ << "): " << msg << COLOR_RESET << std::endl; \
+    std::cerr << color \
+              << std::left << std::setw(5) << level << " " \
+              << std::put_time(&tm_info, "%H:%M:%S") << " " \
+              << log_utils::short_file_name(__FILE__) << ":" << __LINE__ << " " \
+              << __func__ << " | " << msg \
+              << COLOR_RESET << std::endl; \
 } while (0)
 
 // 公开使用的日志宏
@@ -303,4 +321,3 @@ namespace ops{
         );
     }
 }
-
