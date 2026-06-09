@@ -3,34 +3,61 @@
 
 #include "core/scheduler.h"
 #include "core/page_attention.h"
+#include "utils/tools.hpp"
 
 void GraphScheduler::schedule(const std::vector<BackendInfo>& devices) {
     if (devices.empty())
         throw std::runtime_error("GraphScheduler: no devices provided");
 
+    LOG_INFO(std::format("schedule: begin graph scheduling with {} available device(s)",
+                         devices.size()));
+    for (const auto &d : devices) {
+      LOG_INFO(std::format("device: {}:{} has {:.1f} MB available memory",
+                           device_to_string(d.device), d.id,
+                           static_cast<double>(d.available_memory()) / (1ULL << 20)));
+    }
+
     // 1. 估算每层内存开销（激活缓存 + 权重 + KV cache）
-    std::vector<LayerCost> costs = this->estimate_layer_costs(this->graph_); 
+    std::vector<LayerCost> costs = this->estimate_layer_costs(this->graph_);
 
     if (costs.empty()) {
-        std::println("[Scheduler] No transformer layers found, nothing to schedule");
+        LOG_INFO("schedule: no transformer layers found, skip scheduling");
         return;
     }
-    this->assignments_ = this->assign_layers(costs, devices);   // 2. 分配连续层到设备
+    LOG_INFO(std::format("cost: estimated memory requirements for {} transformer layer(s)", costs.size()));
 
-    this->apply_assignment(this->graph_, this->assignments_);   // 3.实际进行设备分配
-    
+    // 2. 分配连续层到设备
+    this->assignments_ = this->assign_layers(costs, devices);
+    LOG_INFO(std::format("placement: assigned layers into {} contiguous device segment(s)",
+                         this->assignments_.size()));
+
+    // 3. 实际进行设备分配
+    this->apply_assignment(this->graph_, this->assignments_);
+    LOG_INFO("placement: wrote assigned devices back to graph tensors");
+
     Device cpu = Device::CPU;
     for (const auto& d : devices) {
-        if (d.device == Device::CPU) { 
-            cpu = d.device;
-            break; 
-        }
+      if (d.device == Device::CPU) {
+        cpu = d.device;
+        break;
+      }
     }
-    this->assign_global_nodes(this->graph_, cpu);   // 4. 添加全局节点，如rope_sin / cos
-    this->insert_copy_edges(this->graph_);          // 5. 为跨设备情况添加拷贝节点
 
-    this->create_memory_pools(this->graph_, devices); // 6. 创建内存池
-    this->initialize_kv_cache();                            //  7.初始化 KV cache 的 page table
+    // 4. 添加全局节点，如rope_sin / cos
+    this->assign_global_nodes(this->graph_, cpu);
+
+    // 5. 为跨设备情况添加拷贝节点
+    this->insert_copy_edges(this->graph_);
+
+    // 6. 创建内存池
+    LOG_INFO("memory: creating weight, activation, and KV-cache pools");
+    this->create_memory_pools(this->graph_, devices);
+
+    // 7. 初始化 KV cache 的 page table
+    LOG_INFO("kv-cache: initializing paged-attention page tables");
+    this->initialize_kv_cache();
+
+    LOG_INFO("schedule: graph scheduling complete");
     this->print_summary(costs, devices);
 }
 std::vector<GraphScheduler::LayerCost> GraphScheduler::estimate_layer_costs(const std::unique_ptr<ComputeGraph>& graph) const {
@@ -390,9 +417,10 @@ void GraphScheduler::create_memory_pools(const std::unique_ptr<ComputeGraph>& gr
             }
             size_t max_kv = budget - fixed;
             if (kv_cap > max_kv) {
-                std::println("[Scheduler] {}:{} copy 节点占用 {}, kv_cache 池从 {} 缩减至 {}",
+                LOG_INFO(std::format(
+                    "memory: {}:{} copy tensors use {}, shrink KV-cache pool from {} to {}",
                     device_to_string(dev), dev_id,
-                    format_bytes(u.copy_bytes), format_bytes(kv_cap), format_bytes(max_kv));
+                    format_bytes(u.copy_bytes), format_bytes(kv_cap), format_bytes(max_kv)));
                 kv_cap = max_kv;
             }
         }
