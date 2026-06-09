@@ -22,13 +22,14 @@
     opacity: 0; transform: translateY(20px);
     animation: fadeIn 0.5s forwards;
   }
-  .step:nth-child(1) { animation-delay: 0.1s; }
-  .step:nth-child(2) { animation-delay: 0.2s; }
-  .step:nth-child(3) { animation-delay: 0.3s; }
-  .step:nth-child(4) { animation-delay: 0.4s; }
-  .step:nth-child(5) { animation-delay: 0.5s; }
-  .step:nth-child(6) { animation-delay: 0.6s; }
-  .step:nth-child(7) { animation-delay: 0.7s; }
+  .step.delay-1 { animation-delay: 0.1s; }
+  .step.delay-2 { animation-delay: 0.2s; }
+  .step.delay-3 { animation-delay: 0.3s; }
+  .step.delay-4 { animation-delay: 0.4s; }
+  .step.delay-5 { animation-delay: 0.5s; }
+  .step.delay-6 { animation-delay: 0.6s; }
+  .step.delay-7 { animation-delay: 0.7s; }
+  .step.delay-8 { animation-delay: 0.8s; }
   @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
 
   .step-num {
@@ -37,8 +38,8 @@
     font-size: 20px; font-weight: 700; z-index: 1;
     box-shadow: 0 0 16px rgba(0,0,0,0.4);
   }
-  .step:nth-child(odd) .step-num { background: linear-gradient(135deg, #1f6feb, #58a6ff); color: #fff; }
-  .step:nth-child(even) .step-num { background: linear-gradient(135deg, #238636, #3fb950); color: #fff; }
+  .step-blue .step-num { background: linear-gradient(135deg, #1f6feb, #58a6ff); color: #fff; }
+  .step-green .step-num { background: linear-gradient(135deg, #238636, #3fb950); color: #fff; }
 
   .step-body {
     margin-left: 20px; flex: 1;
@@ -61,6 +62,29 @@
   }
   .analogy::before { content: '💡 类比：'; font-weight: 600; }
 
+  .example-box {
+    margin: -8px 0 28px 76px;
+    background: #101720; border: 1px solid #2f81f7; border-radius: 10px;
+    padding: 18px 22px; box-shadow: 0 0 18px rgba(47,129,247,0.10);
+    overflow-x: auto;
+  }
+  .example-title { font-size: 16px; font-weight: 600; color: #79c0ff; margin-bottom: 8px; }
+  .example-desc { font-size: 13px; line-height: 1.7; color: #b1bac4; margin-bottom: 12px; }
+  .example-desc code,
+  .formula code {
+    background: #1f2937; padding: 1px 6px; border-radius: 4px;
+    font-size: 13px; color: #7ee787; font-family: "Fira Code", monospace;
+  }
+  .example-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0 12px; }
+  .example-table th,
+  .example-table td { border: 1px solid #30363d; padding: 8px 10px; text-align: left; }
+  .example-table th { color: #f0f6fc; background: #1c2431; font-weight: 600; }
+  .example-table td { color: #c9d1d9; }
+  .formula {
+    background: #0d1117; border-left: 3px solid #3fb950; border-radius: 0 6px 6px 0;
+    padding: 10px 14px; font-size: 13px; line-height: 1.7; color: #b1bac4;
+  }
+
   .arrow-down {
     display: flex; justify-content: center; margin: -8px 0 -8px 0;
     position: relative; z-index: 1;
@@ -77,6 +101,9 @@
   .summary-box ul { padding-left: 20px; }
   .summary-box li { margin-bottom: 6px; }
   .summary-box code { background: #1f2937; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #79c0ff; font-family: "Fira Code", monospace; }
+  @media (max-width: 760px) {
+    .example-box { margin-left: 76px; }
+  }
 </style>
 </head>
 <body>
@@ -87,7 +114,7 @@
 <div class="flow">
 
   <!-- Step 1 -->
-  <div class="step">
+  <div class="step step-blue delay-1">
     <div class="step-num">1</div>
     <div class="step-body">
       <div class="step-title">估算每层内存开销</div>
@@ -96,31 +123,139 @@
         遍历计算图中所有 Transformer 层，统计每层三类开销：<br>
         - <span class="highlight">权重 (weight)</span>：模型参数，只读<br>
         - <span class="highlight">激活 (activation)</span>：中间计算结果，层间复用<br>
-        - <span class="highlight">KV Cache</span>：注意力 Key/Value 缓存，由 <code>max_seq_len</code> 和 <code>n_kv_heads</code> 推算<br>
-        激活乘以 <code>activation_pool_factor</code> 系数做安全预留。
+        - <span class="highlight">KV Cache</span>：注意力 Key/Value 缓存，由 <code>max_seq_len</code>、<code>PAGE_BLOCK_SIZE</code>、<code>n_kv_heads</code>、<code>head_dim</code> 和 dtype 推算<br>
+        激活乘以 <code>activation_pool_factor</code> 系数做安全预留；KV Cache 乘以 <code>kv_cache_pool_factor</code>。<br>
+        注意：这里只是<span class="highlight">分层估算</span>，第 6 步会在插入 copy 节点后重新按设备统计实际池大小。
       </div>
       <div class="analogy">厨师清点食材：这道菜需要多少肉、多少蔬菜、多少调料。</div>
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：手算第 0 层的 LayerCost</div>
+    <div class="example-desc">
+      假设第 0 层是一个 BF16 Transformer 层，配置为 <code>max_seq_len=8192</code>、<code>PAGE_BLOCK_SIZE=16</code>、<code>n_kv_heads=8</code>、<code>head_dim=128</code>、<code>activation_pool_factor=1.2</code>、<code>kv_cache_pool_factor=1.0</code>。<br>
+      <code>estimate_layer_costs(graph)</code> 会从 <code>graph->get_layer_groups()</code> 拿到这一层的计算张量，从 <code>graph->get_all_tensors()</code> 里单独累加这一层的权重。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>统计对象</th>
+          <th>示例张量</th>
+          <th>计算方式</th>
+          <th>结果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>activation_bytes</td>
+          <td><code>x_norm</code>、<code>q_flat</code>、<code>k_flat</code>、<code>v_flat</code>、<code>attn_4d</code></td>
+          <td>跳过 view 张量后，把每个张量的 <code>bytes_at(max_seq_len)</code> 相加，再乘以 <code>activation_pool_factor</code></td>
+          <td><code>576.0MB</code></td>
+        </tr>
+        <tr>
+          <td>weight_bytes</td>
+          <td><code>attn_q.weight</code>、<code>attn_k.weight</code>、<code>attn_v.weight</code>、<code>ffn_*.weight</code></td>
+          <td>遍历所有 <code>TENSOR_TYPE_WEIGHT</code>，按 <code>layer_id</code> 累加 <code>bytes()</code></td>
+          <td><code>30.0MB</code></td>
+        </tr>
+        <tr>
+          <td>kv_cache_bytes</td>
+          <td><code>OP_TYPE_PAGED_ATTN</code></td>
+          <td><code>2 * ceil(8192 / 16) * 16 * 8 * 128 * 2 bytes</code></td>
+          <td><code>32MB</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      最终第 0 层得到：<br>
+      与日志中的 <code>L  0: weight=30.0 MB  activation=576.0 MB  kv_cache=32.0 MB  total=638.0 MB</code> 对应：<br>
+      <code>LayerCost{layer_id=0, weight_bytes=30.0MB, activation_bytes=576.0MB, kv_cache_bytes=32.0MB}</code><br>
+      后续 <code>assign_layers()</code> 会用 <code>total = weight + activation + kv_cache = 638.0MB</code> 参与设备分段决策。
+    </div>
+  </div>
+
   <!-- Step 2 -->
-  <div class="step">
+  <div class="step step-green delay-2">
     <div class="step-num">2</div>
     <div class="step-body">
       <div class="step-title">贪心分配连续层到设备</div>
       <div class="step-func">assign_layers(costs, devices)</div>
       <div class="step-desc">
-        设备按可用内存从大到小排序。从第一层开始，依次将连续层塞入当前设备：<br>
-        每层占用 = <code>weight + kv_cache + max(activation)</code><br>
-        超出设备内存时切到下一个设备。<span class="warn">CPU 作为最后兜底</span>，若 CPU 也放不下则抛出异常。<br>
-        返回值：每段一个 <code>LayerAssignment{start_layer, end_layer, device, dev_id}</code>
+        非 CPU 设备按可用内存从大到小排序，CPU 只作为最后候选设备。<br>
+        每个设备的可用预算不是全部空闲内存，而是：<code>available_memory * (1 - memory_headroom)</code>。<br>
+        从第一层开始，依次将连续层塞入当前设备，段内估算公式为：<br>
+        <code>need = Σweight + Σkv_cache + max(activation)</code><br>
+        其中 activation 取段内最大单层值，因为层间激活可复用。超出预算时切到下一个设备。<br>
+        <span class="warn">CPU 只有在设备列表中存在时才可兜底</span>；没有可用设备或单层放不下当前设备都会抛出异常。<br>
+        返回值：每段一个 <code>LayerAssignment{start_layer, end_layer, device, dev_id, kv_cache_bytes, weight_bytes, activation_bytes}</code>
       </div>
       <div class="analogy">把衣服按顺序往衣柜里塞，塞满了换下一个衣柜，最后塞进储物间。</div>
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：assign_layers 如何形成设备分段</div>
+    <div class="example-desc">
+      假设 <code>estimate_layer_costs()</code> 得到 4 层，每层都和第 0 层类似：<code>weight=30MB</code>、<code>activation=576MB</code>、<code>kv_cache=32MB</code>。<br>
+      设备列表里有一张 CUDA 卡和 CPU，<code>memory_headroom=0.05</code>。CUDA 可用内存为 <code>820MB</code>，实际调度预算为 <code>820 * 0.95 = 779MB</code>。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>尝试加入层</th>
+          <th>段内 weight</th>
+          <th>段内 kv_cache</th>
+          <th>段内 max activation</th>
+          <th>need</th>
+          <th>结果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>L0</code></td>
+          <td><code>30MB</code></td>
+          <td><code>32MB</code></td>
+          <td><code>576MB</code></td>
+          <td><code>638MB</code></td>
+          <td>放入 CUDA:0</td>
+        </tr>
+        <tr>
+          <td><code>L1</code></td>
+          <td><code>60MB</code></td>
+          <td><code>64MB</code></td>
+          <td><code>576MB</code></td>
+          <td><code>700MB</code></td>
+          <td>继续放入 CUDA:0</td>
+        </tr>
+        <tr>
+          <td><code>L2</code></td>
+          <td><code>90MB</code></td>
+          <td><code>96MB</code></td>
+          <td><code>576MB</code></td>
+          <td><code>762MB</code></td>
+          <td>继续放入 CUDA:0</td>
+        </tr>
+        <tr>
+          <td><code>L3</code></td>
+          <td><code>120MB</code></td>
+          <td><code>128MB</code></td>
+          <td><code>576MB</code></td>
+          <td><code>824MB</code></td>
+          <td>超过 779MB，停止当前段</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      CUDA:0 最终只接收 <code>L0 ~ L2</code>，然后 <code>assign_layers()</code> 切到下一个候选设备 CPU，从 <code>L3</code> 重新开始累加。返回结果类似：<br>
+      <code>LayerAssignment{start_layer=0, end_layer=2, device=CUDA, dev_id=0, kv_cache_bytes=96MB, weight_bytes=90MB, activation_bytes=576MB}</code><br>
+      <code>LayerAssignment{start_layer=3, end_layer=3, device=CPU, dev_id=0, kv_cache_bytes=32MB, weight_bytes=30MB, activation_bytes=576MB}</code><br>
+      关键点是 activation 不随层数累加，只保留当前段里的最大值；weight 和 KV Cache 会随层数累加。新设备会从失败的那一层重新开始尝试。
+    </div>
+  </div>
+
   <!-- Step 3 -->
-  <div class="step">
+  <div class="step step-blue delay-3">
     <div class="step-num">3</div>
     <div class="step-body">
       <div class="step-title">写入 Tensor 设备信息</div>
@@ -134,63 +269,334 @@
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：apply_assignment 如何写回 Tensor::device</div>
+    <div class="example-desc">
+      接着上面的分段结果：<code>L0 ~ L2</code> 放到 <code>CUDA:0</code>，<code>L3</code> 放到 <code>CPU:0</code>。<br>
+      <code>apply_assignment()</code> 先展开每个连续段，得到一个临时表 <code>layer_dev</code>，再遍历图中所有 Tensor，把匹配到的层写入对应设备。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>assignment</th>
+          <th>展开后的 layer_dev</th>
+          <th>MemoryManager 注册</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>L0 ~ L2 → CUDA:0</code></td>
+          <td><code>layer_dev[0]=CUDA</code><br><code>layer_dev[1]=CUDA</code><br><code>layer_dev[2]=CUDA</code></td>
+          <td><code>register_layer_device(0, 0)</code><br><code>register_layer_device(1, 0)</code><br><code>register_layer_device(2, 0)</code></td>
+        </tr>
+        <tr>
+          <td><code>L3 → CPU:0</code></td>
+          <td><code>layer_dev[3]=CPU</code></td>
+          <td><code>register_layer_device(3, 0)</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>Tensor</th>
+          <th>layer_id</th>
+          <th>写回前</th>
+          <th>写回后</th>
+          <th>原因</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>blk.0.attn_q.weight</code></td>
+          <td><code>0</code></td>
+          <td><code>CPU</code></td>
+          <td><code>CUDA</code></td>
+          <td><code>layer_dev[0]</code> 命中 CUDA</td>
+        </tr>
+        <tr>
+          <td><code>blk.2.ffn_out</code></td>
+          <td><code>2</code></td>
+          <td><code>CPU</code></td>
+          <td><code>CUDA</code></td>
+          <td><code>layer_dev[2]</code> 命中 CUDA</td>
+        </tr>
+        <tr>
+          <td><code>blk.3.attn_4d</code></td>
+          <td><code>3</code></td>
+          <td><code>CPU</code></td>
+          <td><code>CPU</code></td>
+          <td><code>layer_dev[3]</code> 命中 CPU</td>
+        </tr>
+        <tr>
+          <td><code>rope_cos</code></td>
+          <td><code>-1</code></td>
+          <td><code>CPU</code></td>
+          <td><code>CPU</code></td>
+          <td><code>layer_id &lt; 0</code>，这一步跳过，下一步统一处理全局节点</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      这一步只写 <code>Tensor::device</code> 和 MemoryManager 的 <code>layer → dev_id</code> 映射；它还不会分配真实内存，也不会插入 memcpy。<br>
+      跨设备输入要等第 5 步 <code>insert_copy_edges()</code> 才会根据这些 <code>Tensor::device</code> 字段被发现。
+    </div>
+  </div>
+
   <!-- Step 4 -->
-  <div class="step">
+  <div class="step step-green delay-4">
     <div class="step-num">4</div>
     <div class="step-body">
       <div class="step-title">全局节点分配到 CPU</div>
       <div class="step-func">assign_global_nodes(graph, cpu)</div>
       <div class="step-desc">
-        <code>layer_id &lt; 0</code> 的节点（如 <span class="highlight">rope_sin / rope_cos</span> 旋转位置编码）不属于任何层，统一放在 CPU 上。
+        <code>layer_id &lt; 0</code> 的节点（如 <span class="highlight">rope_sin / rope_cos</span> 旋转位置编码）不属于任何 Transformer 层，统一写成 CPU。<br>
+        这一步发生在跨设备拷贝节点插入之前，所以后续如果某个设备需要这些全局张量，会由第 5 步自动插入 CPU → 目标设备的 memcpy 节点。
       </div>
       <div class="analogy">公共调料放在厨房台面上，不需要放冰箱。</div>
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：assign_global_nodes 如何处理全局 Tensor</div>
+    <div class="example-desc">
+      前面 <code>apply_assignment()</code> 只处理 <code>layer_id &gt;= 0</code> 的层内 Tensor。现在轮到不属于任何层的全局 Tensor，例如 RoPE 查表、输入占位或输出相关辅助节点。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>Tensor</th>
+          <th>layer_id</th>
+          <th>写入设备</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>rope_cos</code></td>
+          <td><code>-1</code></td>
+          <td><code>CPU</code></td>
+          <td>全局 RoPE cache，不属于某个 Transformer layer</td>
+        </tr>
+        <tr>
+          <td><code>rope_sin</code></td>
+          <td><code>-1</code></td>
+          <td><code>CPU</code></td>
+          <td>和 <code>rope_cos</code> 一样先固定在 CPU</td>
+        </tr>
+        <tr>
+          <td><code>input_ids</code></td>
+          <td><code>-1</code></td>
+          <td><code>CPU</code></td>
+          <td>输入 Tensor 通常从 CPU 侧绑定</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      这一步的结果是：层内 Tensor 已经按 <code>LayerAssignment</code> 分到 CUDA/CPU，全局 Tensor 统一保持 CPU。<br>
+      如果 CUDA 层后续读取 <code>rope_cos</code>，第 5 步会发现 <code>rope_cos(CPU) → consumer(CUDA)</code>，于是插入 CPU → CUDA 的 memcpy。
+    </div>
+  </div>
+
   <!-- Step 5 -->
-  <div class="step">
+  <div class="step step-blue delay-5">
     <div class="step-num">5</div>
     <div class="step-body">
       <div class="step-title">插入跨设备拷贝节点</div>
       <div class="step-func">insert_copy_edges(graph)</div>
       <div class="step-desc">
-        当某层输入张量来自<span class="warn">另一个设备</span>时，在图中自动插入 <code>memcpy</code> 节点进行数据搬运。<br>
-        去重机制：同一对 (src, dst_device) 只插入一次，多处引用复用同一拷贝节点。<br>
-        拷贝节点的内存开销在第 6 步 <code>create_memory_pools</code> 中从 KV Cache 池扣减。
+        当某个 Tensor 的输入来自<span class="warn">另一个设备</span>时，在图中自动插入 <code>memcpy</code> 节点进行数据搬运，并把 consumer 的 <code>src[]</code> 改指向拷贝结果。<br>
+        外部输出也会检查：如果最终输出不在 CPU，会额外插入回拷 CPU 的节点。<br>
+        GPU → GPU 的拷贝会拆成两跳：<code>GPU → CPU → GPU</code>；CPU ↔ GPU 则是一跳。<br>
+        去重机制：同一对 <code>(src, dst_device)</code> 只插入一次，多处引用复用同一拷贝节点。插入完成后会 <code>rebuild_order()</code>，保证拓扑顺序包含新节点。<br>
+        拷贝节点的内存开销不会在第 1 步估算，实际会在第 6 步重新统计，并可能压缩 KV Cache 池。
       </div>
       <div class="analogy">冰箱里的肉要做菜，先搬到灶台上（memcpy），再下锅。</div>
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：insert_copy_edges 如何补跨设备边</div>
+    <div class="example-desc">
+      现在图里已有设备标记：<code>L0 ~ L2</code> 在 CUDA，<code>L3</code> 在 CPU，全局 RoPE 节点也在 CPU。<br>
+      <code>insert_copy_edges()</code> 遍历每个 Tensor 的 <code>src[]</code>，只要发现 <code>src->device != consumer->device</code>，就准备插入 memcpy。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>发现的边</th>
+          <th>原因</th>
+          <th>插入节点</th>
+          <th>改写后引用</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>rope_cos(CPU) → L0.q_rope(CUDA)</code></td>
+          <td>全局 RoPE 在 CPU，L0 在 CUDA</td>
+          <td><code>memcpy_rope_cos_to_cuda</code></td>
+          <td><code>L0.q_rope.src = memcpy_rope_cos_to_cuda</code></td>
+        </tr>
+        <tr>
+          <td><code>rope_sin(CPU) → L0.q_rope(CUDA)</code></td>
+          <td>同上</td>
+          <td><code>memcpy_rope_sin_to_cuda</code></td>
+          <td><code>L0.q_rope.src = memcpy_rope_sin_to_cuda</code></td>
+        </tr>
+        <tr>
+          <td><code>L2.layer_output(CUDA) → L3.x_norm(CPU)</code></td>
+          <td>CUDA 段输出被 CPU 段消费</td>
+          <td><code>memcpy_layer_output_to_cpu</code></td>
+          <td><code>L3.x_norm.src = memcpy_layer_output_to_cpu</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      如果多个 consumer 需要同一个 <code>(src, dst_device)</code>，cache 会复用同一个 memcpy 节点。<br>
+      所有新节点插入后调用 <code>graph->rebuild_order()</code>，确保执行顺序从 “生产者 → memcpy → consumer”。
+    </div>
+  </div>
+
   <!-- Step 6 -->
-  <div class="step">
+  <div class="step step-green delay-6">
     <div class="step-num">6</div>
     <div class="step-body">
       <div class="step-title">创建内存池</div>
       <div class="step-func">create_memory_pools(graph, devices)</div>
       <div class="step-desc">
-        在每个设备上调用 <code>mmanager_->get_or_create(dev, dev_id, weight, activation, kv_cache)</code>，<br>
-        创建三类内存池：<code>MemoryPool</code>（weight / activation / kv_cache）。<br>
-        内存池内部预分配一整块连续内存，后续通过偏移量分配，<span class="highlight">零碎片</span>。<br>
-        剩余空间全部给 KV Cache，最大化可用上下文长度。
+        这一步基于<span class="highlight">已经插入 memcpy 节点后的图</span>重新按设备统计内存，而不是直接复用第 1 步的 per-layer 估算。<br>
+        每个设备统计四类开销：<code>weight_bytes</code>、<code>activation_bytes</code>、<code>kv_cache_bytes</code>、<code>copy_bytes</code>。<br>
+        权重池累加该设备上的所有权重；激活池按层统计并取该设备上的最大单层激活，再乘以 <code>activation_pool_factor</code>，且最小为 <code>64MB</code>。<br>
+        KV Cache 池累加该设备上所有 paged attention 层需要的 cache。<br>
+        如果 copy 节点占用了预算，会优先保留 <code>weight + activation + copy</code>，然后把 KV Cache 池压缩到剩余预算内；若固定开销已经超过预算，则抛出异常。<br>
+        最后调用 <code>mmanager_->get_or_create(dev, dev_id, weight, activation, kv_cache)</code> 创建 weight / activation / kv_cache 三类池。
       </div>
       <div class="analogy">搬进新家前先定制好橱柜，尺寸精确到厘米，不留浪费空间。</div>
     </div>
   </div>
 
+  <div class="example-box">
+    <div class="example-title">例子：create_memory_pools 如何二次统计</div>
+    <div class="example-desc">
+      第 6 步已经能看到 memcpy 节点，所以它会重新按设备统计真实池大小。继续使用前面的分段：CUDA 有 L0~L2，CPU 有 L3，并假设 CUDA 上新增 copy tensor 总计 <code>64MB</code>。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>设备</th>
+          <th>weight</th>
+          <th>activation</th>
+          <th>copy</th>
+          <th>kv_cache</th>
+          <th>最终创建</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CUDA:0</code></td>
+          <td><code>90MB</code></td>
+          <td><code>max(576MB, 64MB下限)=576MB</code></td>
+          <td><code>64MB</code></td>
+          <td><code>96MB</code></td>
+          <td><code>get_or_create(CUDA, 0, 90MB, 576MB, 96MB)</code></td>
+        </tr>
+        <tr>
+          <td><code>CPU:0</code></td>
+          <td><code>30MB</code></td>
+          <td><code>576MB</code></td>
+          <td><code>32MB</code></td>
+          <td><code>32MB</code></td>
+          <td><code>get_or_create(CPU, 0, 30MB, 576MB, 32MB)</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      如果某设备预算不足，先保留 <code>weight + activation + copy</code>，再把 KV cache 压缩到剩余空间。<br>
+      例如预算 <code>760MB</code>，CUDA 固定开销 <code>90 + 576 + 64 = 730MB</code>，KV cache 最多只能保留 <code>30MB</code>，于是 <code>96MB → 30MB</code>。
+    </div>
+  </div>
+
   <!-- Step 7 -->
-  <div class="step">
+  <div class="step step-blue delay-7">
     <div class="step-num">7</div>
     <div class="step-body">
       <div class="step-title">初始化 KV Cache 分页管理器</div>
       <div class="step-func">initialize_kv_cache()</div>
       <div class="step-desc">
-        为每个设备创建 <code>PagedAttentionManager</code>，管理 KV Cache 的分页分配。<br>
+        按 <code>assignments_</code> 遍历每个设备段；只有该设备存在 <code>kv_cache</code> 池时才创建 <code>PagedAttentionManager</code>。<br>
         分页大小 = <code>PAGE_BLOCK_SIZE</code>（通常 16 tokens）<br>
         最大页数 = <code>ceil(max_seq_len / PAGE_BLOCK_SIZE)</code><br>
-        每层的注意力头独立管理，支持动态分配和回收。
+        对段内每个 <code>OP_TYPE_PAGED_ATTN</code> Tensor，读取 <code>n_kv_heads</code>、<code>head_dim</code> 和 dtype，调用 <code>init_layer()</code> 初始化层元信息，再调用 <code>reserve_layer()</code> 预留页表容量。<br>
+        这里做的是分页管理器初始化，为后续运行时动态分配/回收 KV block 做准备。
       </div>
       <div class="analogy">图书馆给每个书架编号，借书还书按页码管理，高效又不浪费。</div>
+    </div>
+  </div>
+
+  <div class="example-box">
+    <div class="example-title">例子：initialize_kv_cache 如何建立页表</div>
+    <div class="example-desc">
+      假设 <code>max_seq_len=8192</code>、<code>PAGE_BLOCK_SIZE=16</code>，则每层最多需要 <code>ceil(8192 / 16)=512</code> 个 block。<br>
+      初始化时按 assignment 找到每个设备上的 paged attention 层，然后给对应设备的 <code>PagedAttentionManager</code> 登记层信息。
+    </div>
+    <table class="example-table">
+      <thead>
+        <tr>
+          <th>assignment</th>
+          <th>paged attention 层</th>
+          <th>init_layer</th>
+          <th>reserve_layer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CUDA:0 L0 ~ L2</code></td>
+          <td><code>L0</code>、<code>L1</code>、<code>L2</code></td>
+          <td><code>init_layer(layer, 8, 128, BF16)</code></td>
+          <td><code>reserve_layer(layer, 512)</code></td>
+        </tr>
+        <tr>
+          <td><code>CPU:0 L3</code></td>
+          <td><code>L3</code></td>
+          <td><code>init_layer(3, 8, 128, BF16)</code></td>
+          <td><code>reserve_layer(3, 512)</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">
+      这里 reserve 的是页表容量，不是把所有 token 的 KV 数据都立即写满。真正的 KV block 使用会在推理运行时按 token 进度分配。
+    </div>
+  </div>
+
+  <!-- Step 8 -->
+  <div class="step step-green delay-8">
+    <div class="step-num">8</div>
+    <div class="step-body">
+      <div class="step-title">打印调度摘要</div>
+      <div class="step-func">print_summary(costs, devices)</div>
+      <div class="step-desc">
+        <code>schedule()</code> 最后会打印调度结果，帮助确认前面几步的决策是否符合预期：<br>
+        - 每层估算：<code>weight / activation / kv_cache / total</code><br>
+        - 设备分段：每个设备负责的层范围，例如 <code>L0 ~ L15</code><br>
+        - 总量统计：总权重、最大单层激活、总 KV Cache<br>
+        这一步不改变图或内存池，只是输出可读摘要。
+      </div>
+      <div class="analogy">最后拿到一张装箱清单：每个箱子放了哪些东西、占了多少空间。</div>
+    </div>
+  </div>
+
+  <div class="example-box">
+    <div class="example-title">例子：print_summary 输出如何读</div>
+    <div class="example-desc">
+      <code>print_summary()</code> 使用第 1 步的 per-layer cost 和第 2 步的 assignments 输出摘要。它不改变调度结果，只帮助你检查 “每层估算” 和 “设备分段” 是否符合预期。
+    </div>
+    <div class="formula">
+      示例输出：<br>
+      <code>L  0: weight=30.0 MB  activation=576.0 MB  kv_cache=32.0 MB  total=638.0 MB</code><br>
+      <code>L  1: weight=30.0 MB  activation=576.0 MB  kv_cache=32.0 MB  total=638.0 MB</code><br>
+      <code>CUDA : L:0 ~ L:2 (3 layers, exc186.0 MB, share96.0 MB)</code><br>
+      <code>CPU : L:3 ~ L:3 (1 layers, exc62.0 MB, share32.0 MB)</code><br>
+      其中 <code>exc</code> 来自 <code>weight_bytes + kv_cache_bytes</code>，<code>share</code> 是该段的 <code>kv_cache_bytes</code>。
     </div>
   </div>
 
@@ -200,11 +606,13 @@
 <div class="summary-box">
   <h2>核心设计思想</h2>
   <ul>
-    <li><strong>层间内存复用</strong>：激活池取单层最大值而非累加，推理是逐层执行的，前一层用完立即回收</li>
+    <li><strong>层间内存复用</strong>：激活池取设备内最大单层激活而非累加，推理是逐层执行的，前一层用完后激活池可复用</li>
     <li><strong>连续层分段</strong>：同一设备分配连续层，减少跨设备通信次数</li>
     <li><strong>零碎片内存池</strong>：预分配大块连续内存，通过偏移量分配，避免 malloc/free 碎片化</li>
-    <li><strong>内存预算公式</strong>：<code>need = Σweight + Σkv_cache + max(activation)</code>，超出时自动切设备</li>
-    <li><strong>CPU 兜底</strong>：GPU 内存不够时自动退到 CPU，保证模型一定能跑起来</li>
+    <li><strong>预算留白</strong>：设备预算为 <code>available_memory * (1 - memory_headroom)</code>，避免把设备内存吃满</li>
+    <li><strong>内存预算公式</strong>：分层阶段使用 <code>need = Σweight + Σkv_cache + max(activation)</code>，超出时切设备</li>
+    <li><strong>图改写后二次统计</strong>：插入 memcpy 后重新统计真实池大小，copy 开销会挤占 KV Cache 预算</li>
+    <li><strong>CPU 兜底有限</strong>：CPU 必须存在于设备列表中，且预算也必须容纳剩余层；否则调度会失败</li>
   </ul>
 </div>
 
